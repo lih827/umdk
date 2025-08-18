@@ -223,6 +223,48 @@ urma_status_t udma_u_delete_jetty(urma_jetty_t *jetty)
 	return URMA_SUCCESS;
 }
 
+static int udma_check_jetty_grp_info(urma_tjetty_cfg_t *cfg)
+{
+	if (cfg->type == URMA_JETTY_GROUP) {
+		if (cfg->trans_mode != URMA_TM_RM) {
+			UDMA_LOG_ERR("import jg only support RM, transmode is %u.\n",
+				     cfg->trans_mode);
+			return EINVAL;
+		}
+
+		if (cfg->policy != URMA_JETTY_GRP_POLICY_HASH_HINT) {
+			UDMA_LOG_ERR("import jg only support hint, policy is %u.\n",
+				     cfg->policy);
+			return EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+urma_status_t udma_u_unimport_jetty(urma_target_jetty_t *target_jetty)
+{
+	struct udma_u_target_jetty *rjetty = to_udma_u_target_jetty(target_jetty);
+
+	if (target_jetty->trans_mode == URMA_TM_RC &&
+	    target_jetty->tp.tpn != INVALID_TPN) {
+		UDMA_LOG_ERR("the RC target jetty is still being used, id = %u.\n",
+			     target_jetty->id.id);
+		return URMA_FAIL;
+	}
+
+	if (urma_cmd_unimport_jetty(target_jetty)) {
+		UDMA_LOG_ERR("urma cmd unimport jetty failed.\n");
+		return URMA_FAIL;
+	}
+
+	rjetty->token_value = 0;
+
+	free(rjetty);
+
+	return URMA_SUCCESS;
+}
+
 urma_status_t udma_u_unbind_jetty(urma_jetty_t *jetty)
 {
 	struct udma_u_jetty *udma_jetty = to_udma_u_jetty(jetty);
@@ -312,4 +354,51 @@ urma_status_t udma_u_delete_jetty_grp(urma_jetty_grp_t *jetty_grp)
 	free(udma_jetty_grp);
 
 	return URMA_SUCCESS;
+}
+
+urma_target_jetty_t *udma_u_import_jetty_ex(urma_context_t *ctx,
+					    urma_rjetty_t *rjetty,
+					    urma_token_t *token_value,
+					    urma_active_tp_cfg_t *active_tp_cfg)
+{
+	urma_tjetty_cfg_t cfg = {rjetty->jetty_id, rjetty->flag,
+				 token_value, rjetty->trans_mode,
+				 rjetty->policy, rjetty->type};
+	urma_cmd_udrv_priv_t udrv_data = {};
+	struct udma_u_target_jetty *tjetty;
+
+	if (rjetty->type != URMA_JETTY && rjetty->type != URMA_JETTY_GROUP) {
+		UDMA_LOG_ERR("The Jetty type %u cannot imported jetty ex.\n",
+			     rjetty->type);
+		return NULL;
+	}
+
+	if (udma_check_jetty_grp_info(&cfg))
+		return NULL;
+
+	tjetty = (struct udma_u_target_jetty *)calloc(1, sizeof(*tjetty));
+	if (tjetty == NULL) {
+		UDMA_LOG_ERR("target jetty alloc failed in imported jetty ex.\n");
+		return NULL;
+	}
+
+	udma_u_set_udata(&udrv_data, NULL, 0, NULL, 0);
+	if (urma_cmd_import_jetty_ex(ctx, &tjetty->urma_tjetty, &cfg,
+				     (urma_import_jetty_ex_cfg_t *)active_tp_cfg, &udrv_data) != 0) {
+		UDMA_LOG_ERR("urma cmd import jetty in exp failed.\n");
+		free(tjetty);
+		return NULL;
+	}
+
+	if (rjetty->trans_mode == URMA_TM_RC)
+		tjetty->urma_tjetty.tp.tpn = INVALID_TPN;
+
+	if (rjetty->flag.bs.token_policy != URMA_TOKEN_NONE) {
+		tjetty->token_value_valid = true;
+		tjetty->token_value = token_value->token;
+	}
+
+	udma_u_swap_endian128(rjetty->jetty_id.eid.raw, tjetty->le_eid.raw);
+
+	return &tjetty->urma_tjetty;
 }

@@ -18,7 +18,7 @@
 
 urma_jetty_t *udma_u_create_jetty(urma_context_t *ctx, urma_jetty_cfg_t *cfg);
 urma_status_t udma_u_delete_jetty(urma_jetty_t *jetty);
-
+urma_status_t udma_u_unimport_jetty(urma_target_jetty_t *target_jetty);
 urma_status_t udma_u_unbind_jetty(urma_jetty_t *jetty);
 urma_jetty_grp_t *udma_u_create_jetty_grp(urma_context_t *ctx,
 					  urma_jetty_grp_cfg_t *cfg);
@@ -29,4 +29,8 @@ int init_jetty_trans_mode(struct udma_u_jetty *jetty,
 			  urma_jetty_cfg_t *cfg);
 int add_jetty_to_grp(struct udma_u_jetty *jetty, urma_jetty_cfg_t *cfg);
 void remove_jetty_from_grp(struct udma_u_jetty *jetty);
+urma_target_jetty_t *udma_u_import_jetty_ex(urma_context_t *ctx,
+					    urma_rjetty_t *rjetty,
+					    urma_token_t *token_value,
+					    urma_active_tp_cfg_t *active_tp_cfg);
 #endif /* __UDMA_U_JETTY_H__ */
