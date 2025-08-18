@@ -127,6 +127,7 @@ struct udma_u_jetty {
 	urma_jetty_t base;
 	struct udma_u_jetty_queue sq;
 	struct udma_u_jfr *jfr;
+	struct udma_u_jetty_grp *jetty_grp;
 	uint32_t jetty_type;
 };
 
@@ -136,6 +137,12 @@ struct udma_u_jfc {
 	uint32_t *sw_db;
 	uint32_t arm_sn;
 	uint32_t cq_shift;
+};
+
+struct udma_u_jetty_grp {
+	urma_jetty_grp_t base;
+	uint32_t jetty_cnt;
+	pthread_spinlock_t lock;
 };
 
 #if INT_MAX >= 2147483647
@@ -251,6 +258,12 @@ static inline uint32_t align_power2(uint32_t n)
 		res++;
 
 	return res;
+}
+
+static inline struct udma_u_jetty_grp *
+to_udma_u_jetty_grp(urma_jetty_grp_t *jetty_grp)
+{
+	return container_of(jetty_grp, struct udma_u_jetty_grp, base);
 }
 
 static inline int udma_u_jetty_queue_insert(struct udma_u_context *udma_ctx,

@@ -27,6 +27,8 @@ static urma_ops_t g_udma_ops = {
 	.delete_jfr = udma_u_delete_jfr,
 	.create_jetty = udma_u_create_jetty,
 	.delete_jetty = udma_u_delete_jetty,
+	.create_jetty_grp = udma_u_create_jetty_grp,
+	.delete_jetty_grp = udma_u_delete_jetty_grp,
 };
 
 static urma_status_t udma_u_init(urma_init_attr_t *conf)

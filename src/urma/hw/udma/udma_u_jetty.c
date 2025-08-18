@@ -67,6 +67,53 @@ int init_jetty_trans_mode(struct udma_u_jetty *jetty, urma_jetty_cfg_t *cfg)
 	return EINVAL;
 }
 
+int add_jetty_to_grp(struct udma_u_jetty *jetty, urma_jetty_cfg_t *cfg)
+{
+	struct udma_u_jetty_grp *udma_jetty_grp;
+	int ret = 0;
+
+	if (!cfg->jetty_grp)
+		return 0;
+
+	if (jetty->sq.trans_mode != URMA_TM_RM) {
+		UDMA_LOG_ERR("Jetty must be RM model, if assigned grp.\n");
+		return EINVAL;
+	}
+
+	udma_jetty_grp = to_udma_u_jetty_grp(cfg->jetty_grp);
+
+	(void)pthread_spin_lock(&udma_jetty_grp->lock);
+	if (udma_jetty_grp->jetty_cnt >= MAX_JETTY_IN_GRP) {
+		UDMA_LOG_ERR("Jetty Group is aleady full.\n");
+		ret = EINVAL;
+		goto out;
+	}
+
+	++udma_jetty_grp->jetty_cnt;
+	jetty->jetty_grp = udma_jetty_grp;
+out:
+	(void)pthread_spin_unlock(&udma_jetty_grp->lock);
+	return ret;
+}
+
+void remove_jetty_from_grp(struct udma_u_jetty *jetty)
+{
+	struct udma_u_jetty_grp *jetty_grp = jetty->jetty_grp;
+
+	if (!jetty_grp)
+		return;
+
+	(void)pthread_spin_lock(&jetty_grp->lock);
+
+	/* Prevent jetty_cnt from being abnormally reduced to 0. */
+	if (jetty_grp->jetty_cnt > 0)
+		--jetty_grp->jetty_cnt;
+
+	(void)pthread_spin_unlock(&jetty_grp->lock);
+
+	jetty->jetty_grp = NULL;
+}
+
 urma_jetty_t *udma_u_create_jetty(urma_context_t *ctx, urma_jetty_cfg_t *cfg)
 {
 	struct udma_u_context *udma_ctx = to_udma_u_ctx(ctx);
@@ -82,7 +129,13 @@ urma_jetty_t *udma_u_create_jetty(urma_context_t *ctx, urma_jetty_cfg_t *cfg)
 	ret = init_jetty_trans_mode(jetty, cfg);
 	if (ret) {
 		UDMA_LOG_ERR("init jetty transmode failed.\n");
-		goto err_create_sq;
+		goto err_add_to_grp;
+	}
+
+	ret = add_jetty_to_grp(jetty, cfg);
+	if (ret) {
+		UDMA_LOG_ERR("add Jetty to grp failed.\n");
+		goto err_add_to_grp;
 	}
 
 	ret = udma_u_create_sq(&jetty->sq, &cfg->jfs_cfg);
@@ -115,6 +168,8 @@ err_alloc_db:
 err_jetty_create_cmd:
 	udma_u_delete_sq(&jetty->sq);
 err_create_sq:
+	remove_jetty_from_grp(jetty);
+err_add_to_grp:
 	free(jetty);
 
 	return NULL;
@@ -145,6 +200,7 @@ static void udma_u_free_jetty(urma_jetty_t *jetty)
 
 	udma_u_free_db(jetty->urma_ctx, &udma_jetty->sq.db);
 	udma_u_delete_sq(&udma_jetty->sq);
+	remove_jetty_from_grp(udma_jetty);
 	free(udma_jetty);
 }
 
@@ -193,6 +249,67 @@ urma_status_t udma_u_unbind_jetty(urma_jetty_t *jetty)
 
 	udma_jetty->sq.tjetty = NULL;
 	tjetty->tp.tpn = INVALID_TPN;
+
+	return URMA_SUCCESS;
+}
+
+urma_jetty_grp_t *udma_u_create_jetty_grp(urma_context_t *ctx,
+					  urma_jetty_grp_cfg_t *cfg)
+{
+	struct udma_u_jetty_grp *jetty_grp;
+	urma_cmd_udrv_priv_t udata = {};
+	int ret;
+
+	if (cfg->policy != URMA_JETTY_GRP_POLICY_HASH_HINT) {
+		UDMA_LOG_ERR("policy %u not support.\n", cfg->policy);
+		return NULL;
+	}
+
+	jetty_grp = (struct udma_u_jetty_grp *)calloc(1, sizeof(*jetty_grp));
+	if (!jetty_grp) {
+		UDMA_LOG_ERR("alloc jetty grp failed.\n");
+		return NULL;
+	}
+
+	if (pthread_spin_init(&jetty_grp->lock, PTHREAD_PROCESS_PRIVATE)) {
+		UDMA_LOG_ERR("init jetty grp lock failed.\n");
+		goto err_spin_init;
+	}
+
+	ret = urma_cmd_create_jetty_grp(ctx, &jetty_grp->base, cfg, &udata);
+	if (ret) {
+		UDMA_LOG_ERR("urma cmd create jetty grp failed.\n");
+		goto err_cmd_create_jetty_grp;
+	}
+
+	return &jetty_grp->base;
+
+err_cmd_create_jetty_grp:
+	(void)pthread_spin_destroy(&jetty_grp->lock);
+err_spin_init:
+	free(jetty_grp);
+	return NULL;
+}
+
+urma_status_t udma_u_delete_jetty_grp(urma_jetty_grp_t *jetty_grp)
+{
+	struct udma_u_jetty_grp *udma_jetty_grp = to_udma_u_jetty_grp(jetty_grp);
+	int ret;
+
+	if (udma_jetty_grp->jetty_cnt > 0) {
+		UDMA_LOG_ERR("jetty group been used, jetty_cnt is %u.\n",
+			     udma_jetty_grp->jetty_cnt);
+		return URMA_FAIL;
+	}
+
+	ret = urma_cmd_delete_jetty_grp(jetty_grp);
+	if (ret) {
+		UDMA_LOG_ERR("urma cmd delete jetty grp failed.\n");
+		return URMA_FAIL;
+	}
+
+	(void)pthread_spin_destroy(&udma_jetty_grp->lock);
+	free(udma_jetty_grp);
 
 	return URMA_SUCCESS;
 }
