@@ -142,6 +142,9 @@ static bool udma_check_sge_num_and_opcode(urma_opcode_t opcode, struct udma_u_je
 					  urma_jfs_wr_t *wr, uint8_t *udma_opcode)
 {
 	switch (opcode) {
+	case URMA_OPC_WRITE:
+		*udma_opcode = UDMA_OPCODE_WRITE;
+		goto default_sge_num;
 	case URMA_OPC_SEND:
 		*udma_opcode = UDMA_OPCODE_SEND;
 		goto send_sge_check;
@@ -158,6 +161,8 @@ static bool udma_check_sge_num_and_opcode(urma_opcode_t opcode, struct udma_u_je
 
 send_sge_check:
 	return wr->send.src.num_sge > sq->max_sge_num;
+default_sge_num:
+	return wr->rw.src.num_sge > sq->max_sge_num;
 }
 
 static int udma_fill_send_sqe(struct udma_jfs_sqe_ctl *ctrl, urma_jfs_wr_t *wr,
@@ -196,6 +201,47 @@ static int udma_fill_send_sqe(struct udma_jfs_sqe_ctl *ctrl, urma_jfs_wr_t *wr,
 	return 0;
 }
 
+static int udma_fill_write_sqe(struct udma_jfs_sqe_ctl *ctrl, urma_jfs_wr_t *wr,
+			       struct udma_wqe_info *wqe_info, struct udma_u_jetty_queue *sq)
+{
+	struct udma_u_segment *udma_seg;
+	struct udma_wqe_sge *sge;
+	uint32_t sge_num = 0;
+	uint32_t ctrl_len;
+	urma_sge_t *sgl;
+	uint32_t i;
+
+	sgl = wr->rw.src.sge;
+	ctrl_len = SQE_NORMAL_CTL_LEN;
+
+	sge = (struct udma_wqe_sge *)udma_inc_ptr_wrap((uint8_t *)ctrl, ctrl_len, (uint8_t *)sq->qbuf,
+						       (uint8_t *)sq->qbuf_end);
+
+	for (i = 0; i < wr->rw.src.num_sge; i++) {
+		if (sgl[i].len == 0)
+			continue;
+		sge->length = sgl[i].len;
+		sge->va = sgl[i].addr;
+		sge = (struct udma_wqe_sge *)udma_inc_ptr_wrap((uint8_t *)sge,
+								(uint32_t)sizeof(struct udma_wqe_sge),
+								(uint8_t *)sq->qbuf, (uint8_t *)sq->qbuf_end);
+		sge_num++;
+	}
+	wqe_info->wqe_cnt = (ctrl_len + (sge_num - 1) * UDMA_SGE_SIZE) / UDMA_JFS_WQEBB + 1;
+
+	sgl = wr->rw.dst.sge;
+	udma_seg = to_udma_u_seg(sgl[0].tseg);
+	ctrl->sge_num = sge_num;
+	ctrl->rmt_jetty_or_seg_id = udma_seg->tid;
+	ctrl->token_en = udma_seg->token_value_valid;
+	ctrl->rmt_token_value = udma_seg->token_value.token;
+	ctrl->target_hint = wr->rw.target_hint;
+	ctrl->rmt_addr_l_or_token_id = sgl[0].addr & UDMA_SQE_CTL_RMA_ADDR_BIT;
+	ctrl->rmt_addr_h_or_token_value = (sgl[0].addr >> UDMA_SQE_CTL_RMA_ADDR_OFFSET) & UDMA_SQE_CTL_RMA_ADDR_BIT;
+
+	return 0;
+}
+
 static int udma_parse_jfs_wr(struct udma_jfs_sqe_ctl *wqe_ctl,
 			     urma_jfs_wr_t *wr, struct udma_u_jetty_queue *sq,
 			     struct udma_wqe_info *wqe_info, urma_target_jetty_t *tjetty)
@@ -221,6 +267,8 @@ static int udma_parse_jfs_wr(struct udma_jfs_sqe_ctl *wqe_ctl,
 		wqe_ctl->rmt_addr_l_or_token_id = udma_seg->tid;
 		wqe_ctl->rmt_addr_h_or_token_value = udma_seg->token_value.token;
 		return ret;
+	case UDMA_OPCODE_WRITE:
+		return udma_fill_write_sqe(wqe_ctl, wr, wqe_info, sq);
 	default:
 		return 0;
 	}
@@ -247,6 +295,9 @@ static bool udma_check_sq_overflow(struct udma_u_jetty_queue *sq, urma_jfs_wr_t 
 	if (udma_opcode <= UDMA_OPCODE_SEND_WITH_INVALID) {
 		num_sge_wr = wr->send.src.num_sge;
 		sgl = wr->send.src.sge;
+	} else if (udma_opcode == UDMA_OPCODE_WRITE) {
+		num_sge_wr = wr->rw.src.num_sge;
+		sgl = wr->rw.src.sge;
 	}
 
 	for (i = 0; i < num_sge_wr; i++)
