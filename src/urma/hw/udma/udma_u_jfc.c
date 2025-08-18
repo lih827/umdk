@@ -167,6 +167,38 @@ struct udma_cr_status {
 	return JFC_POLL_ERR;
 }
 
+static void handle_recv_inl_cqe(struct udma_u_jfc_cqe *cqe, uint8_t opcode,
+				struct udma_u_jfr *jfr, urma_cr_t *cr)
+{
+	uint32_t rqe_idx, data_len, sge_idx, size;
+	struct udma_wqe_sge *sge_list;
+	void *cqe_inl_buf;
+
+	rqe_idx = cqe->entry_idx;
+	sge_list = (struct udma_wqe_sge *)(jfr->rq.qbuf +
+					   (rqe_idx << jfr->wqe_shift));
+	data_len = cqe->byte_cnt;
+	if (opcode == HW_CQE_OPC_SEND)
+		cqe_inl_buf = &cqe->data_l;
+	else
+		cqe_inl_buf = &cqe->inline_data;
+
+	for (sge_idx = 0; (sge_idx < jfr->max_sge) && (data_len); sge_idx++) {
+		size = sge_list[sge_idx].length < data_len ?
+		       sge_list[sge_idx].length : data_len;
+		(void)memcpy((void *)(uintptr_t)sge_list[sge_idx].va,
+		       cqe_inl_buf, size);
+		data_len -= size;
+		cqe_inl_buf += size;
+	}
+	cr->completion_len = cqe->byte_cnt - data_len;
+
+	if (data_len) {
+		cqe->status = UDMA_CQE_LOCAL_OP_ERR;
+		cqe->substatus = UDMA_CQE_LOCAL_LENGTH_ERR;
+	}
+}
+
 static void udma_u_parse_opcode_for_res(struct udma_u_jfc_cqe *cqe, urma_cr_t *cr)
 {
 	uint8_t opcode = cqe->opcode;
@@ -215,10 +247,12 @@ static struct udma_u_jetty_queue
 }
 
 static bool udma_u_update_jfr_idx(struct udma_u_context *udma_ctx,
-				  struct udma_u_jfc_cqe *cqe, urma_cr_t *cr)
+				  struct udma_u_jfc_cqe *cqe, urma_cr_t *cr,
+				  bool is_clean)
 {
 	struct udma_u_jetty_queue *queue;
 	bool is_jetty = !!cqe->is_jetty;
+	uint8_t opcode = cqe->opcode;
 	struct udma_u_jetty *jetty;
 	struct udma_u_jfr *jfr;
 	uint32_t entry_idx;
@@ -242,6 +276,9 @@ static bool udma_u_update_jfr_idx(struct udma_u_context *udma_ctx,
 	entry_idx = cqe->entry_idx;
 	cr->user_ctx = queue->wrid[entry_idx & (queue->baseblk_cnt - (uint32_t)1)];
 
+	if (!is_clean && cqe->inline_en != 0)
+		handle_recv_inl_cqe(cqe, opcode, jfr, cr);
+
 	(void)pthread_spin_lock(&jfr->lock);
 	udma_bitmap_free_idx(jfr->idx_que.bitmap, jfr->idx_que.bitmap_cnt, entry_idx);
 	queue->ci++;
@@ -257,7 +294,7 @@ static enum jfc_poll_state udma_u_parse_cqe_for_recv(struct udma_u_context *udma
 	uint8_t substatus;
 	uint8_t status;
 
-	if (udma_u_update_jfr_idx(udma_ctx, cqe, cr))
+	if (udma_u_update_jfr_idx(udma_ctx, cqe, cr, false))
 		return JFC_POLL_ERR;
 
 	udma_u_parse_opcode_for_res(cqe, cr);
@@ -418,7 +455,7 @@ void udma_u_clean_jfc(struct urma_jfc *jfc, uint32_t jetty_id)
 		if (local_id == jetty_id) {
 			if (cqe->s_r == (uint8_t)CQE_FOR_RECEIVE) {
 				cr.local_id = local_id;
-				(void)udma_u_update_jfr_idx(udma_ctx, cqe, &cr);
+				(void)udma_u_update_jfr_idx(udma_ctx, cqe, &cr, true);
 			}
 
 			++nfreed;
