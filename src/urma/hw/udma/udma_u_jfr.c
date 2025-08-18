@@ -224,6 +224,58 @@ urma_status_t udma_u_delete_jfr(urma_jfr_t *jfr)
 	return URMA_SUCCESS;
 }
 
+int udma_verify_modify_jfr(struct udma_u_jfr *jfr, uint32_t jfr_limit)
+{
+	if (jfr_limit > jfr->wqe_cnt) {
+		UDMA_LOG_ERR("JFR limit(%u) larger than wqe num(%u).\n",
+			     jfr_limit, jfr->wqe_cnt);
+		return EINVAL;
+	}
+
+	return 0;
+}
+
+static void udma_reset_sw_u_jfr_queue(struct udma_u_jfr *udma_jfr)
+{
+	udma_u_init_bitmap(udma_jfr->idx_que.bitmap, udma_jfr->idx_que.bitmap_cnt);
+
+	udma_jfr->rq.pi = 0;
+	udma_jfr->rq.ci = 0;
+	*udma_jfr->sw_db = 0;
+}
+
+urma_status_t udma_u_modify_jfr(urma_jfr_t *jfr, urma_jfr_attr_t *attr)
+{
+	struct udma_u_jfr *udma_jfr = to_udma_u_jfr(jfr);
+	urma_cmd_udrv_priv_t udata = {};
+	int ret;
+
+	if (!(attr->mask & (JFR_RX_THRESHOLD | JFR_STATE))) {
+		UDMA_LOG_ERR("modify jfr mask is error or not set, jfr_id = %u.\n",
+			     jfr->jfr_id.id);
+		return URMA_EINVAL;
+	}
+
+	if (attr->mask & JFR_RX_THRESHOLD) {
+		ret = udma_verify_modify_jfr(udma_jfr, attr->rx_threshold);
+		if (ret) {
+			UDMA_LOG_ERR("verify modify jfr failed.\n");
+			return URMA_EINVAL;
+		}
+	}
+
+	ret = urma_cmd_modify_jfr(jfr, attr, &udata);
+	if (ret) {
+		UDMA_LOG_ERR("urma cmd modify jfr failed.\n");
+		return URMA_FAIL;
+	}
+
+	if ((attr->mask & JFR_STATE) && attr->state == URMA_JFR_STATE_READY)
+		udma_reset_sw_u_jfr_queue(udma_jfr);
+
+	return URMA_SUCCESS;
+}
+
 urma_status_t udma_u_unimport_jfr(urma_target_jetty_t *target_jfr)
 {
 	struct udma_u_target_jetty *tjfr = to_udma_u_target_jetty(target_jfr);
