@@ -27,6 +27,23 @@ static uint32_t get_ctl_len(uint8_t opcode)
 	}
 }
 
+static bool udma_check_atomic_len(uint32_t len, uint8_t opcode)
+{
+	switch (len) {
+	case UDMA_ATOMIC_LEN_4:
+	case UDMA_ATOMIC_LEN_8:
+		return true;
+	case UDMA_ATOMIC_LEN_16:
+		if (opcode == URMA_OPC_CAS)
+			return true;
+		UDMA_LOG_ERR("the atomic opcode must be CAS when len is 16.\n");
+		return false;
+	default:
+		UDMA_LOG_ERR("invalid atomic len %u.\n", len);
+		return false;
+	}
+}
+
 int udma_u_exec_jfs_create_cmd(urma_context_t *ctx, struct udma_u_jfs *jfs,
 			       urma_jfs_cfg_t *cfg)
 {
@@ -175,11 +192,19 @@ static bool udma_check_sge_num_and_opcode(urma_opcode_t opcode, struct udma_u_je
 	case URMA_OPC_SEND_INVALIDATE:
 		*udma_opcode = UDMA_OPCODE_SEND_WITH_INVALID;
 		goto send_sge_check;
+	case URMA_OPC_CAS:
+		*udma_opcode = UDMA_OPCODE_CAS;
+		goto cas_faa_sge_check;
+	case URMA_OPC_FADD:
+		*udma_opcode = UDMA_OPCODE_FAA;
+		goto cas_faa_sge_check;
 	default:
 		UDMA_LOG_ERR("Invalid opcode :%u\n", (uint8_t)opcode);
 		return true;
 	}
 
+cas_faa_sge_check:
+	return sq->max_sge_num == 0;
 read_sge_check:
 	return wr->rw.dst.num_sge > UDMA_JFS_MAX_SGE_READ || wr->rw.dst.num_sge > sq->max_sge_num;
 write_with_notify_sge_check:
@@ -310,6 +335,85 @@ static int udma_fill_read_sqe(struct udma_jfs_sqe_ctl *ctrl, urma_jfs_wr_t *wr,
 	return 0;
 }
 
+static int udma_fill_cas_sqe(struct udma_jfs_sqe_ctl *ctrl, urma_jfs_wr_t *wr, struct udma_u_jetty_queue *sq)
+{
+	struct udma_u_segment *udma_seg;
+	struct udma_wqe_sge *sge;
+	urma_sge_t *sgl;
+
+	sgl = wr->cas.src;
+	if (!udma_check_atomic_len(sgl->len, wr->opcode))
+		return EINVAL;
+	sge = (struct udma_wqe_sge *)udma_inc_ptr_wrap((uint8_t *)ctrl,
+						      sizeof(struct udma_jfs_sqe_ctl),
+						      (uint8_t *)sq->qbuf,
+						      (uint8_t *)sq->qbuf_end);
+
+	sge->length = sgl->len;
+	sge->va = sgl->addr;
+
+	sgl = wr->cas.dst;
+	udma_seg = to_udma_u_seg(sgl->tseg);
+
+	ctrl->rmt_addr_l_or_token_id = sgl->addr & UDMA_SQE_CTL_RMA_ADDR_BIT;
+	ctrl->rmt_addr_h_or_token_value = (sgl->addr >> UDMA_SQE_CTL_RMA_ADDR_OFFSET) & UDMA_SQE_CTL_RMA_ADDR_BIT;
+	ctrl->rmt_jetty_or_seg_id = udma_seg->tid;
+	ctrl->token_en = udma_seg->token_value_valid;
+	ctrl->rmt_token_value = udma_seg->token_value.token;
+	ctrl->sge_num = UDMA_ATOMIC_SGE_NUM;
+
+	if (sge->length <= UDMA_ATOMIC_LEN_8) {
+		memcpy(udma_inc_ptr_wrap((uint8_t *)ctrl, SQE_ATOMIC_DATA_FIELD, (uint8_t *)sq->qbuf,
+					 (uint8_t *)sq->qbuf_end), &wr->cas.swap_data, sge->length);
+		memcpy(udma_inc_ptr_wrap((uint8_t *)ctrl, SQE_ATOMIC_DATA_FIELD + sge->length, (uint8_t *)sq->qbuf,
+					 (uint8_t *)sq->qbuf_end), &wr->cas.cmp_data, sge->length);
+	} else {
+		memcpy(udma_inc_ptr_wrap((uint8_t *)ctrl, SQE_ATOMIC_DATA_FIELD, (uint8_t *)sq->qbuf,
+					 (uint8_t *)sq->qbuf_end), (void *)wr->cas.swap_addr, sge->length);
+		memcpy(udma_inc_ptr_wrap((uint8_t *)ctrl, SQE_ATOMIC_DATA_FIELD + sge->length, (uint8_t *)sq->qbuf,
+					 (uint8_t *)sq->qbuf_end), (void *)wr->cas.cmp_addr, sge->length);
+	}
+
+	return 0;
+}
+
+static int udma_fill_faa_sqe(struct udma_jfs_sqe_ctl *ctrl, urma_jfs_wr_t *wr, struct udma_u_jetty_queue *sq)
+{
+	struct udma_u_segment *udma_seg;
+	struct udma_wqe_sge *sge;
+	urma_sge_t *sgl;
+
+	sgl = wr->faa.src;
+	if (!udma_check_atomic_len(sgl->len, wr->opcode))
+		return EINVAL;
+	sge = (struct udma_wqe_sge *)udma_inc_ptr_wrap((uint8_t *)ctrl,
+						      sizeof(struct udma_jfs_sqe_ctl),
+						      (uint8_t *)sq->qbuf,
+						      (uint8_t *)sq->qbuf_end);
+
+	sge->length = sgl->len;
+	sge->va = sgl->addr;
+
+	sgl = wr->faa.dst;
+	udma_seg = to_udma_u_seg(sgl->tseg);
+
+	ctrl->rmt_addr_l_or_token_id = sgl->addr & UDMA_SQE_CTL_RMA_ADDR_BIT;
+	ctrl->rmt_addr_h_or_token_value = (sgl->addr >> UDMA_SQE_CTL_RMA_ADDR_OFFSET) & UDMA_SQE_CTL_RMA_ADDR_BIT;
+	ctrl->rmt_jetty_or_seg_id = udma_seg->tid;
+	ctrl->token_en = udma_seg->token_value_valid;
+	ctrl->rmt_token_value = udma_seg->token_value.token;
+	ctrl->sge_num = UDMA_ATOMIC_SGE_NUM;
+
+	if (sge->length <= UDMA_ATOMIC_LEN_8)
+		memcpy(udma_inc_ptr_wrap((uint8_t *)ctrl, SQE_ATOMIC_DATA_FIELD, (uint8_t *)sq->qbuf,
+					 (uint8_t *)sq->qbuf_end), &wr->faa.operand,
+					 sge->length);
+	else
+		memcpy(udma_inc_ptr_wrap((uint8_t *)ctrl, SQE_ATOMIC_DATA_FIELD, (uint8_t *)sq->qbuf,
+					 (uint8_t *)sq->qbuf_end), (void *)wr->faa.operand_addr, sge->length);
+	return 0;
+}
+
 static int udma_parse_jfs_wr(struct udma_jfs_sqe_ctl *wqe_ctl,
 			     urma_jfs_wr_t *wr, struct udma_u_jetty_queue *sq,
 			     struct udma_wqe_info *wqe_info, urma_target_jetty_t *tjetty)
@@ -371,6 +475,12 @@ static int udma_parse_jfs_wr(struct udma_jfs_sqe_ctl *wqe_ctl,
 		return ret;
 	case UDMA_OPCODE_READ:
 		return udma_fill_read_sqe(wqe_ctl, wr, &wqe_info->wqe_cnt, sq);
+	case UDMA_OPCODE_CAS:
+		wqe_info->wqe_cnt = UDMA_ATOMIC_WQE_BB_NUM;
+		return udma_fill_cas_sqe(wqe_ctl, wr, sq);
+	case UDMA_OPCODE_FAA:
+		wqe_info->wqe_cnt = UDMA_ATOMIC_WQE_BB_NUM;
+		return udma_fill_faa_sqe(wqe_ctl, wr, sq);
 	default:
 		return 0;
 	}
@@ -391,6 +501,11 @@ static bool udma_check_sq_overflow(struct udma_u_jetty_queue *sq, urma_jfs_wr_t 
 		return false;
 
 	udma_opcode = wqe_info->opcode;
+
+	if (udma_opcode == UDMA_OPCODE_FAA || udma_opcode == UDMA_OPCODE_CAS) {
+		wqe_bb_cnt = UDMA_ATOMIC_WQE_BB_NUM;
+		return udma_sq_overflow(sq, wqe_bb_cnt);
+	}
 
 	wqe_ctrl_len = get_ctl_len(udma_opcode);
 
