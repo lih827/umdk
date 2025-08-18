@@ -55,6 +55,7 @@ static urma_ops_t g_udma_ops = {
 	.import_jfr_ex = udma_u_import_jfr_ex,
 	.bind_jetty_ex = udma_u_bind_jetty_ex,
 	.alloc_token_id = udma_u_alloc_tid,
+	.alloc_token_id_ex = udma_u_alloc_tid_ex,
 	.free_token_id = udma_u_free_tid,
 	.register_seg = udma_u_register_seg,
 	.unregister_seg = udma_u_unregister_seg,

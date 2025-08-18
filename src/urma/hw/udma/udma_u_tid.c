@@ -91,3 +91,11 @@ urma_token_id_t *udma_u_alloc_tid(urma_context_t *ctx)
 {
 	return udma_u_alloc_tid_common(ctx, MAPT_MODE_TABLE);
 }
+
+urma_token_id_t *udma_u_alloc_tid_ex(urma_context_t *ctx, urma_token_id_flag_t flag)
+{
+	if (flag.bs.multi_seg != 0)
+		return udma_u_alloc_tid_common(ctx, MAPT_MODE_TABLE);
+	else
+		return udma_u_alloc_tid_common(ctx, MAPT_MODE_ENTRY);
+}
