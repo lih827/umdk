@@ -145,6 +145,9 @@ static bool udma_check_sge_num_and_opcode(urma_opcode_t opcode, struct udma_u_je
 	case URMA_OPC_SEND:
 		*udma_opcode = UDMA_OPCODE_SEND;
 		goto send_sge_check;
+	case URMA_OPC_SEND_IMM:
+		*udma_opcode = UDMA_OPCODE_SEND_WITH_IMM;
+		goto send_sge_check;
 	default:
 		UDMA_LOG_ERR("Invalid opcode :%u\n", (uint8_t)opcode);
 		return true;
@@ -194,9 +197,18 @@ static int udma_parse_jfs_wr(struct udma_jfs_sqe_ctl *wqe_ctl,
 			     urma_jfs_wr_t *wr, struct udma_u_jetty_queue *sq,
 			     struct udma_wqe_info *wqe_info, urma_target_jetty_t *tjetty)
 {
+	int ret;
+
 	switch (wqe_info->opcode) {
 	case UDMA_OPCODE_SEND:
 		return udma_fill_send_sqe(wqe_ctl, wr, sq, tjetty, &wqe_info->wqe_cnt);
+	case UDMA_OPCODE_SEND_WITH_IMM:
+		ret = udma_fill_send_sqe(wqe_ctl, wr, sq, tjetty, &wqe_info->wqe_cnt);
+		if (ret)
+			return ret;
+		memcpy((void *)((char *)wqe_ctl + SQE_SEND_IMM_FIELD), &wr->send.imm_data,
+		       sizeof(uint64_t));
+		return ret;
 	default:
 		return 0;
 	}
@@ -220,7 +232,7 @@ static bool udma_check_sq_overflow(struct udma_u_jetty_queue *sq, urma_jfs_wr_t 
 
 	wqe_ctrl_len = SQE_NORMAL_CTL_LEN;
 
-	if (udma_opcode == UDMA_OPCODE_SEND) {
+	if (udma_opcode <= UDMA_OPCODE_SEND_WITH_IMM) {
 		num_sge_wr = wr->send.src.num_sge;
 		sgl = wr->send.src.sge;
 	}
