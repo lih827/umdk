@@ -26,6 +26,8 @@
 
 #define UDMA_JFS_WQEBB 64
 #define UDMA_HW_PAGE_SIZE 4096U
+#define UDMA_BITS_PER_LONG 64
+#define UDMA_BITS_PER_LONG_SHIFT 6
 #define UDMA_SGE_SIZE 16
 #define UDMA_JFC_DB_OFFSET 0
 
@@ -35,6 +37,20 @@ struct udma_u_doorbell {
 	void volatile *addr;
 };
 
+struct udma_u_buf {
+	void *buf;
+	uint32_t length;
+};
+
+struct udma_u_db_page {
+	struct udma_u_db_page *prev, *next;
+	struct udma_u_buf buf;
+	uint32_t num_db;
+	uint32_t use_cnt;
+	uintptr_t *bitmap;
+	uint32_t bitmap_cnt;
+};
+
 struct udma_u_context {
 	urma_context_t		urma_ctx;
 	void			*db_addr;
@@ -42,6 +58,7 @@ struct udma_u_context {
 	struct udma_u_db_page	*db_list[UDMA_DB_TYPE_NUM];
 	pthread_mutex_t		db_list_mutex;
 	struct udma_u_doorbell	db;
+	uint8_t			cqe_size;
 	uint32_t		ue_id;
 	uint32_t		chip_id;
 	uint32_t		die_id;
@@ -81,6 +98,14 @@ struct udma_u_jfs {
 	struct udma_u_jetty_queue sq;
 	bool pi_type;
 	uint32_t jfs_type;
+};
+
+struct udma_u_jfc {
+	urma_jfc_t base;
+	struct udma_u_jetty_queue cq;
+	uint32_t *sw_db;
+	uint32_t arm_sn;
+	uint32_t cq_shift;
 };
 
 #if INT_MAX >= 2147483647
@@ -169,6 +194,11 @@ static inline off_t get_mmap_offset(uint32_t idx, int page_size, uint32_t cmd)
 static inline struct udma_u_jfs *to_udma_u_jfs(urma_jfs_t *jfs)
 {
 	return container_of(jfs, struct udma_u_jfs, base);
+}
+
+static inline struct udma_u_jfc *to_udma_u_jfc(urma_jfc_t *jfc)
+{
+	return container_of(jfc, struct udma_u_jfc, base);
 }
 
 static inline uint32_t align_power2(uint32_t n)

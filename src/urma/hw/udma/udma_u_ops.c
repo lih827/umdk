@@ -10,12 +10,15 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <sys/mman.h>
+#include "udma_u_jfc.h"
 #include "udma_u_jfs.h"
 #include "udma_u_db.h"
 #include "udma_u_ops.h"
 
 static urma_ops_t g_udma_ops = {
 	.name = "UDMA_OPS",
+	.create_jfc = udma_u_create_jfc,
+	.delete_jfc = udma_u_delete_jfc,
 	.create_jfs = udma_u_create_jfs,
 	.delete_jfs = udma_u_delete_jfs,
 };
@@ -46,6 +49,7 @@ static void udma_u_init_context(struct udma_u_context *udma_ctx,
 	udma_ctx->page_size = sysconf(_SC_PAGESIZE);
 	udma_ctx->db.id = UDMA_JFC_DB_OFFSET;
 	udma_ctx->db.type = UDMA_MMAP_JFC_PAGE;
+	udma_ctx->cqe_size = resp->cqe_size;
 	udma_ctx->ue_id = resp->ue_id;
 	udma_ctx->chip_id = resp->chip_id;
 	udma_ctx->die_id = resp->die_id;
