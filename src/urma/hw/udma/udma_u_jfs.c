@@ -790,3 +790,34 @@ urma_status_t udma_u_post_jfs_wr(urma_jfs_t *jfs, urma_jfs_wr_t *wr,
 
 	return ret;
 }
+
+void udma_reset_sw_u_jetty_queue(struct udma_u_jetty_queue *sq)
+{
+	sq->qbuf_curr = sq->qbuf;
+	sq->pi = 0;
+	sq->ci = 0;
+	sq->flush_flag = false;
+}
+
+urma_status_t udma_u_modify_jfs(urma_jfs_t *jfs, urma_jfs_attr_t *jfs_attr)
+{
+	struct udma_u_jfs *udma_jfs = to_udma_u_jfs(jfs);
+	int ret;
+
+	if (!(jfs_attr->mask & JFS_STATE)) {
+		UDMA_LOG_ERR("modify jfs mask is error or not set, jfs_id = %u.\n",
+			     jfs->jfs_id.id);
+		return URMA_EINVAL;
+	}
+
+	ret = urma_cmd_modify_jfs(jfs, jfs_attr, NULL);
+	if (ret) {
+		UDMA_LOG_ERR("urma cmd modify jfs failed, ret = %d\n", ret);
+		return URMA_FAIL;
+	}
+
+	if (jfs_attr->state == URMA_JETTY_STATE_READY)
+		udma_reset_sw_u_jetty_queue(&udma_jfs->sq);
+
+	return URMA_SUCCESS;
+}
