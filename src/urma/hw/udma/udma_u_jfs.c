@@ -15,6 +15,18 @@
 #include "udma_u_db.h"
 #include "udma_u_jfs.h"
 
+static uint32_t get_ctl_len(uint8_t opcode)
+{
+	switch (opcode) {
+	case UDMA_OPCODE_WRITE_WITH_IMM:
+		return SQE_WRITE_IMM_CTL_LEN;
+	case UDMA_OPCODE_WRITE_WITH_NOTIFY:
+		return SQE_WRITE_NOTIFY_CTL_LEN;
+	default:
+		return SQE_NORMAL_CTL_LEN;
+	}
+}
+
 int udma_u_exec_jfs_create_cmd(urma_context_t *ctx, struct udma_u_jfs *jfs,
 			       urma_jfs_cfg_t *cfg)
 {
@@ -145,6 +157,9 @@ static bool udma_check_sge_num_and_opcode(urma_opcode_t opcode, struct udma_u_je
 	case URMA_OPC_WRITE:
 		*udma_opcode = UDMA_OPCODE_WRITE;
 		goto default_sge_num;
+	case URMA_OPC_WRITE_IMM:
+		*udma_opcode = UDMA_OPCODE_WRITE_WITH_IMM;
+		goto write_with_imm_sge_check;
 	case URMA_OPC_SEND:
 		*udma_opcode = UDMA_OPCODE_SEND;
 		goto send_sge_check;
@@ -159,6 +174,8 @@ static bool udma_check_sge_num_and_opcode(urma_opcode_t opcode, struct udma_u_je
 		return true;
 	}
 
+write_with_imm_sge_check:
+	return wr->rw.src.num_sge > UDMA_JFS_MAX_SGE_WRITE_IMM || wr->rw.src.num_sge > sq->max_sge_num;
 send_sge_check:
 	return wr->send.src.num_sge > sq->max_sge_num;
 default_sge_num:
@@ -212,7 +229,7 @@ static int udma_fill_write_sqe(struct udma_jfs_sqe_ctl *ctrl, urma_jfs_wr_t *wr,
 	uint32_t i;
 
 	sgl = wr->rw.src.sge;
-	ctrl_len = SQE_NORMAL_CTL_LEN;
+	ctrl_len = get_ctl_len(wqe_info->opcode);
 
 	sge = (struct udma_wqe_sge *)udma_inc_ptr_wrap((uint8_t *)ctrl, ctrl_len, (uint8_t *)sq->qbuf,
 						       (uint8_t *)sq->qbuf_end);
@@ -246,6 +263,8 @@ static int udma_parse_jfs_wr(struct udma_jfs_sqe_ctl *wqe_ctl,
 			     urma_jfs_wr_t *wr, struct udma_u_jetty_queue *sq,
 			     struct udma_wqe_info *wqe_info, urma_target_jetty_t *tjetty)
 {
+	struct udma_u_target_jetty *udma_tjetty;
+	struct udma_token_info *token_info;
 	struct udma_u_segment *udma_seg;
 	int ret;
 
@@ -269,6 +288,18 @@ static int udma_parse_jfs_wr(struct udma_jfs_sqe_ctl *wqe_ctl,
 		return ret;
 	case UDMA_OPCODE_WRITE:
 		return udma_fill_write_sqe(wqe_ctl, wr, wqe_info, sq);
+	case UDMA_OPCODE_WRITE_WITH_IMM:
+		ret = udma_fill_write_sqe(wqe_ctl, wr, wqe_info, sq);
+		if (ret)
+			return ret;
+		udma_tjetty = to_udma_u_target_jetty(tjetty);
+		token_info = (struct udma_token_info *)
+			     ((void *)((char *)wqe_ctl + WRITE_IMM_TOKEN_FIELD));
+		memcpy((void *)((char *)wqe_ctl + SQE_WRITE_IMM_FIELD), &wr->rw.notify_data,
+		       sizeof(uint64_t));
+		token_info->token_id = tjetty->id.id;
+		token_info->token_value = udma_tjetty->token_value;
+		return ret;
 	default:
 		return 0;
 	}
@@ -290,12 +321,12 @@ static bool udma_check_sq_overflow(struct udma_u_jetty_queue *sq, urma_jfs_wr_t 
 
 	udma_opcode = wqe_info->opcode;
 
-	wqe_ctrl_len = SQE_NORMAL_CTL_LEN;
+	wqe_ctrl_len = get_ctl_len(udma_opcode);
 
 	if (udma_opcode <= UDMA_OPCODE_SEND_WITH_INVALID) {
 		num_sge_wr = wr->send.src.num_sge;
 		sgl = wr->send.src.sge;
-	} else if (udma_opcode == UDMA_OPCODE_WRITE) {
+	} else if (udma_opcode >= UDMA_OPCODE_WRITE && udma_opcode <= UDMA_OPCODE_WRITE_WITH_IMM) {
 		num_sge_wr = wr->rw.src.num_sge;
 		sgl = wr->rw.src.sge;
 	}
