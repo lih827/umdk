@@ -428,6 +428,20 @@ urma_status_t udma_u_delete_jetty_grp(urma_jetty_grp_t *jetty_grp)
 	return URMA_SUCCESS;
 }
 
+urma_status_t udma_u_query_jetty(urma_jetty_t *jetty, urma_jetty_cfg_t *cfg,
+				 urma_jetty_attr_t *attr)
+{
+	int ret;
+
+	ret = urma_cmd_query_jetty(jetty, cfg, attr);
+	if (ret) {
+		UDMA_LOG_ERR("failed to query jetty in urma cmd, ret = %d.\n", ret);
+		return URMA_FAIL;
+	}
+
+	return URMA_SUCCESS;
+}
+
 urma_target_jetty_t *udma_u_import_jetty_ex(urma_context_t *ctx,
 					    urma_rjetty_t *rjetty,
 					    urma_token_t *token_value,
