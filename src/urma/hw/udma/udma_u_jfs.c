@@ -198,6 +198,9 @@ static bool udma_check_sge_num_and_opcode(urma_opcode_t opcode, struct udma_u_je
 	case URMA_OPC_FADD:
 		*udma_opcode = UDMA_OPCODE_FAA;
 		goto cas_faa_sge_check;
+	case URMA_OPC_NOP:
+		*udma_opcode = UDMA_OPCODE_NOP;
+		goto default_sge_num;
 	default:
 		UDMA_LOG_ERR("Invalid opcode :%u\n", (uint8_t)opcode);
 		return true;
@@ -507,6 +510,11 @@ static bool udma_check_sq_overflow(struct udma_u_jetty_queue *sq, urma_jfs_wr_t 
 		return udma_sq_overflow(sq, wqe_bb_cnt);
 	}
 
+	if (udma_opcode == UDMA_OPCODE_NOP) {
+		wqe_bb_cnt = NOP_WQEBB_CNT;
+		return udma_sq_overflow(sq, wqe_bb_cnt);
+	}
+
 	wqe_ctrl_len = get_ctl_len(udma_opcode);
 
 	if (udma_opcode <= UDMA_OPCODE_SEND_WITH_INVALID) {
@@ -544,6 +552,11 @@ static urma_status_t udma_set_sqe(struct udma_jfs_sqe_ctl *wqe_ctl,
 	wqe_ctl->opcode = wqe_info->opcode;
 	wqe_ctl->flag = wr->flag.value;
 	wqe_ctl->owner = ((sq->pi & sq->baseblk_cnt) == 0 ? 1 : 0);
+
+	if (wqe_info->opcode == UDMA_OPCODE_NOP) {
+		wqe_info->wqe_cnt = NOP_WQEBB_CNT;
+		return URMA_SUCCESS;
+	}
 
 	if (sq->trans_mode == URMA_TM_RC)
 		tjetty = &sq->tjetty->urma_tjetty;
