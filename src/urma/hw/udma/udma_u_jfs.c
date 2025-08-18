@@ -160,6 +160,9 @@ static bool udma_check_sge_num_and_opcode(urma_opcode_t opcode, struct udma_u_je
 	case URMA_OPC_WRITE_IMM:
 		*udma_opcode = UDMA_OPCODE_WRITE_WITH_IMM;
 		goto write_with_imm_sge_check;
+	case URMA_OPC_WRITE_NOTIFY:
+		*udma_opcode = UDMA_OPCODE_WRITE_WITH_NOTIFY;
+		goto write_with_notify_sge_check;
 	case URMA_OPC_SEND:
 		*udma_opcode = UDMA_OPCODE_SEND;
 		goto send_sge_check;
@@ -174,6 +177,8 @@ static bool udma_check_sge_num_and_opcode(urma_opcode_t opcode, struct udma_u_je
 		return true;
 	}
 
+write_with_notify_sge_check:
+	return wr->rw.src.num_sge > UDMA_JFS_MAX_SGE_NOTIFY || wr->rw.src.num_sge > sq->max_sge_num;
 write_with_imm_sge_check:
 	return wr->rw.src.num_sge > UDMA_JFS_MAX_SGE_WRITE_IMM || wr->rw.src.num_sge > sq->max_sge_num;
 send_sge_check:
@@ -266,6 +271,7 @@ static int udma_parse_jfs_wr(struct udma_jfs_sqe_ctl *wqe_ctl,
 	struct udma_u_target_jetty *udma_tjetty;
 	struct udma_token_info *token_info;
 	struct udma_u_segment *udma_seg;
+	urma_sge_t *sgl;
 	int ret;
 
 	switch (wqe_info->opcode) {
@@ -300,6 +306,23 @@ static int udma_parse_jfs_wr(struct udma_jfs_sqe_ctl *wqe_ctl,
 		token_info->token_id = tjetty->id.id;
 		token_info->token_value = udma_tjetty->token_value;
 		return ret;
+	case UDMA_OPCODE_WRITE_WITH_NOTIFY:
+		ret = udma_fill_write_sqe(wqe_ctl, wr, wqe_info, sq);
+		if (ret)
+			return ret;
+		sgl = wr->rw.dst.sge;
+		udma_seg = to_udma_u_seg(sgl[1].tseg);
+		token_info = (struct udma_token_info *)
+			     ((void *)((char *)wqe_ctl + WRITE_NOTIFY_TOKEN_FIELD));
+		token_info->token_id = udma_seg->tid;
+		token_info->token_value = udma_seg->token_value.token;
+		memcpy(udma_inc_ptr_wrap((uint8_t *)wqe_ctl, SQE_NOTIFY_ADDR_FIELD, (uint8_t *)sq->qbuf,
+					 (uint8_t *)sq->qbuf_end), &sgl[1].addr,
+					 sizeof(uint64_t));
+		memcpy(udma_inc_ptr_wrap((uint8_t *)wqe_ctl, SQE_NOTIFY_DATA_FIELD, (uint8_t *)sq->qbuf,
+					 (uint8_t *)sq->qbuf_end), &wr->rw.notify_data,
+					 sizeof(uint64_t));
+		return ret;
 	default:
 		return 0;
 	}
@@ -326,7 +349,7 @@ static bool udma_check_sq_overflow(struct udma_u_jetty_queue *sq, urma_jfs_wr_t 
 	if (udma_opcode <= UDMA_OPCODE_SEND_WITH_INVALID) {
 		num_sge_wr = wr->send.src.num_sge;
 		sgl = wr->send.src.sge;
-	} else if (udma_opcode >= UDMA_OPCODE_WRITE && udma_opcode <= UDMA_OPCODE_WRITE_WITH_IMM) {
+	} else if (udma_opcode >= UDMA_OPCODE_WRITE && udma_opcode <= UDMA_OPCODE_WRITE_WITH_NOTIFY) {
 		num_sge_wr = wr->rw.src.num_sge;
 		sgl = wr->rw.src.sge;
 	}

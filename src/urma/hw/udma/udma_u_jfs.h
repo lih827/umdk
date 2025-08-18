@@ -74,6 +74,7 @@ enum udma_jfs_opcode {
 };
 
 #define MAX_SQE_BB_NUM 4
+#define UDMA_JFS_MAX_SGE_NOTIFY 11
 #define UDMA_JFS_MAX_SGE_WRITE_IMM 12
 #define SQE_NORMAL_CTL_LEN 48
 #define SQE_WRITE_IMM_CTL_LEN 64
@@ -84,6 +85,9 @@ enum udma_jfs_opcode {
 #define SQE_SEND_IMM_FIELD 40
 #define SQE_WRITE_IMM_FIELD 48
 #define WRITE_IMM_TOKEN_FIELD 56
+#define WRITE_NOTIFY_TOKEN_FIELD 48
+#define SQE_NOTIFY_ADDR_FIELD 56
+#define SQE_NOTIFY_DATA_FIELD 64
 #define UDMA_MAX_PRIORITY 16
 
 static inline void udma_u_init_sq_param(struct udma_u_jetty_queue *sq,
