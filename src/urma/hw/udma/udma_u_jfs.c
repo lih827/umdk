@@ -821,3 +821,17 @@ urma_status_t udma_u_modify_jfs(urma_jfs_t *jfs, urma_jfs_attr_t *jfs_attr)
 
 	return URMA_SUCCESS;
 }
+
+urma_status_t udma_u_query_jfs(urma_jfs_t *jfs, urma_jfs_cfg_t *cfg,
+			       urma_jfs_attr_t *attr)
+{
+	int ret;
+
+	ret = urma_cmd_query_jfs(jfs, cfg, attr);
+	if (ret) {
+		UDMA_LOG_ERR("failed to query jfs in urma cmd, ret = %d.\n", ret);
+		return URMA_FAIL;
+	}
+
+	return URMA_SUCCESS;
+}
