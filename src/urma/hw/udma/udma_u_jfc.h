@@ -11,9 +11,59 @@
 #define __UDMA_U_JFC_H__
 
 #include "urma_types.h"
+#include "udma_u_common.h"
 
 #define UDMA_U_MIN_JFC_DEPTH 64
 
+#define UDMA_U_JFC_DB_CI_IDX_M GENMASK(21, 0)
+#define UDMA_U_CQE_INV_TOKEN_ID GENMASK(19, 0)
+
+enum udma_u_jfc_type {
+	UDMA_U_NORMAL_JFC_TYPE,
+};
+
+struct udma_u_jfc_cqe {
+	/* DW0 */
+	uint32_t s_r : 1;
+	uint32_t is_jetty : 1;
+	uint32_t owner : 1;
+	uint32_t inline_en : 1;
+	uint32_t opcode : 3;
+	uint32_t fd : 1;
+	uint32_t rsv : 8;
+	uint32_t substatus : 8;
+	uint32_t status : 8;
+	/* DW1 */
+	uint32_t entry_idx : 16;
+	uint32_t local_num_l : 16;
+	/* DW2 */
+	uint32_t local_num_h : 4;
+	uint32_t rmt_idx : 20;
+	uint32_t rsv1 : 8;
+	/* DW3 */
+	uint32_t tpn : 24;
+	uint32_t rsv2 : 8;
+	/* DW4 */
+	uint32_t byte_cnt;
+	/* DW5 ~ DW6 */
+	uint32_t user_data_l;
+	uint32_t user_data_h;
+	/* DW7 ~ DW10 */
+	uint32_t rmt_eid[4];
+	/* DW11 ~ DW12 */
+	uint32_t data_l;
+	uint32_t data_h;
+	/* DW13 ~ DW15 */
+	uint32_t inline_data[3];
+};
+
+static inline void *get_u_buf_entry(struct udma_u_jetty_queue *cq, uint32_t n)
+{
+	return (char *)cq->qbuf + ((n & cq->baseblk_mask) << cq->baseblk_shift);
+}
+
 urma_jfc_t *udma_u_create_jfc(urma_context_t *ctx, urma_jfc_cfg_t *cfg);
 urma_status_t udma_u_delete_jfc(urma_jfc_t *jfc);
+int udma_u_poll_jfc(urma_jfc_t *jfc, int cr_cnt, urma_cr_t *cr);
+void udma_u_clean_jfc(struct urma_jfc *jfc, uint32_t jetty_id);
 #endif /* __UDMA_U_JFC_H__ */

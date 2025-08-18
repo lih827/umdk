@@ -197,6 +197,21 @@ static urma_status_t udma_u_delete_jetty_prepare(urma_jetty_t *jetty)
 static void udma_u_free_jetty(urma_jetty_t *jetty)
 {
 	struct udma_u_jetty *udma_jetty = to_udma_u_jetty(jetty);
+	urma_jfc_t *send_jfc;
+	urma_jfc_t *recv_jfc;
+
+	send_jfc = jetty->jetty_cfg.jfs_cfg.jfc;
+
+	if (jetty->jetty_cfg.flag.bs.share_jfr == URMA_NO_SHARE_JFR)
+		recv_jfc = jetty->jetty_cfg.jfr_cfg->jfc;
+	else
+		recv_jfc = jetty->jetty_cfg.shared.jfr->jfr_cfg.jfc;
+
+	if (!!send_jfc)
+		udma_u_clean_jfc(send_jfc, jetty->jetty_id.id);
+
+	if (!!recv_jfc && send_jfc != recv_jfc)
+		udma_u_clean_jfc(recv_jfc, jetty->jetty_id.id);
 
 	udma_u_free_db(jetty->urma_ctx, &udma_jetty->sq.db);
 	udma_u_delete_sq(&udma_jetty->sq);

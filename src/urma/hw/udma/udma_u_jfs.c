@@ -13,6 +13,7 @@
 #include <sys/types.h>
 #include "udma_u_buf.h"
 #include "udma_u_db.h"
+#include "udma_u_jfc.h"
 #include "udma_u_jfs.h"
 
 static uint32_t get_ctl_len(uint8_t opcode)
@@ -151,6 +152,9 @@ err_create_sq:
 static void udma_u_free_jfs(urma_jfs_t *jfs)
 {
 	struct udma_u_jfs *udma_jfs = to_udma_u_jfs(jfs);
+
+	if (!!jfs->jfs_cfg.jfc)
+		udma_u_clean_jfc(jfs->jfs_cfg.jfc, jfs->jfs_id.id);
 
 	udma_u_free_db(jfs->urma_ctx, &udma_jfs->sq.db);
 	udma_u_delete_sq(&udma_jfs->sq);

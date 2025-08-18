@@ -188,6 +188,9 @@ static void udma_u_free_jfr(urma_jfr_t *jfr)
 	struct udma_u_context *udma_ctx = to_udma_u_ctx(jfr->urma_ctx);
 	struct udma_u_jfr *udma_jfr = to_udma_u_jfr(jfr);
 
+	if (jfr->jfr_cfg.jfc)
+		udma_u_clean_jfc(jfr->jfr_cfg.jfc, jfr->jfr_id.id);
+
 	udma_u_free_sw_db(udma_ctx, udma_jfr->sw_db, UDMA_JFR_TYPE_DB);
 
 	udma_u_free_queue_buf(&udma_jfr->rq);

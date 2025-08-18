@@ -206,6 +206,7 @@ struct udma_u_target_jetty {
 #endif
 
 #define udma_to_device_barrier() {asm volatile("dsb st" ::: "memory"); }
+#define udma_from_device_barrier() {asm volatile("dsb ld" ::: "memory"); }
 
 static inline void udma_u_set_udata(urma_cmd_udrv_priv_t *udrv_data,
 				    void *in_addr, uint32_t in_len,
@@ -312,9 +313,27 @@ to_udma_u_jetty_grp(urma_jetty_grp_t *jetty_grp)
 	return container_of(jetty_grp, struct udma_u_jetty_grp, base);
 }
 
+static inline struct udma_u_jfr *
+to_udma_u_jfr_from_queue(struct udma_u_jetty_queue *queue)
+{
+	return container_of(queue, struct udma_u_jfr, rq);
+}
+
+static inline struct udma_u_jetty *
+to_udma_u_jetty_from_queue(struct udma_u_jetty_queue *queue)
+{
+	return container_of(queue, struct udma_u_jetty, sq);
+}
+
 static inline struct udma_u_segment *to_udma_u_seg(urma_target_seg_t *seg)
 {
 	return container_of(seg, struct udma_u_segment, urma_tseg);
+}
+
+static inline struct udma_u_jetty_queue
+*to_udma_jetty_queue(struct udma_u_hmap_node *node)
+{
+	return container_of(node, struct udma_u_jetty_queue, hmap_node);
 }
 
 static inline int udma_u_jetty_queue_insert(struct udma_u_context *udma_ctx,
