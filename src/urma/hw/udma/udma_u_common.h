@@ -151,6 +151,15 @@ struct udma_u_jetty_grp {
 	pthread_spinlock_t lock;
 };
 
+struct udma_u_segment {
+	urma_target_seg_t urma_tseg;
+	urma_token_t token_value;
+	bool token_value_valid;
+	uint64_t len;                 /* specify the length of the segment to be registered */
+	uint64_t va;                  /* specify the address of the segment to be registered */
+	uint32_t tid;
+};
+
 struct udma_u_target_jetty {
 	urma_target_jetty_t urma_tjetty;
 	urma_eid_t le_eid;
@@ -274,6 +283,13 @@ to_udma_u_target_jetty(urma_target_jetty_t *target_jetty)
 	return container_of(target_jetty, struct udma_u_target_jetty, urma_tjetty);
 }
 
+static inline void *udma_inc_ptr_wrap(uint8_t *ptr, uint32_t inc,
+				      uint8_t *qbuf, uint8_t *qbuf_end)
+{
+	return ((ptr + inc) < qbuf_end) ?
+		(ptr + inc) : qbuf + (ptr + inc - qbuf_end);
+}
+
 static inline uint32_t align_power2(uint32_t n)
 {
 	uint32_t res = 0;
@@ -288,6 +304,11 @@ static inline struct udma_u_jetty_grp *
 to_udma_u_jetty_grp(urma_jetty_grp_t *jetty_grp)
 {
 	return container_of(jetty_grp, struct udma_u_jetty_grp, base);
+}
+
+static inline struct udma_u_segment *to_udma_u_seg(urma_target_seg_t *seg)
+{
+	return container_of(seg, struct udma_u_segment, urma_tseg);
 }
 
 static inline int udma_u_jetty_queue_insert(struct udma_u_context *udma_ctx,

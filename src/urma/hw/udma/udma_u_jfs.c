@@ -137,3 +137,220 @@ urma_status_t udma_u_delete_jfs(urma_jfs_t *jfs)
 
 	return URMA_SUCCESS;
 }
+
+static bool udma_check_sge_num_and_opcode(urma_opcode_t opcode, struct udma_u_jetty_queue *sq,
+					  urma_jfs_wr_t *wr, uint8_t *udma_opcode)
+{
+	switch (opcode) {
+	case URMA_OPC_SEND:
+		*udma_opcode = UDMA_OPCODE_SEND;
+		goto send_sge_check;
+	default:
+		UDMA_LOG_ERR("Invalid opcode :%u\n", (uint8_t)opcode);
+		return true;
+	}
+
+send_sge_check:
+	return wr->send.src.num_sge > sq->max_sge_num;
+}
+
+static int udma_fill_send_sqe(struct udma_jfs_sqe_ctl *ctrl, urma_jfs_wr_t *wr,
+			      struct udma_u_jetty_queue *sq, urma_target_jetty_t *tjetty, uint32_t *wqe_cnt)
+{
+	struct udma_u_target_jetty *udma_tjetty;
+	struct udma_wqe_sge *sge;
+	uint32_t sge_num = 0;
+	urma_sge_t *sgl;
+	uint32_t i;
+
+	sgl = wr->send.src.sge;
+
+	sge = (struct udma_wqe_sge *)udma_inc_ptr_wrap((uint8_t *)ctrl, (uint32_t)sizeof(struct udma_jfs_sqe_ctl),
+						       (uint8_t *)sq->qbuf, (uint8_t *)sq->qbuf_end);
+
+	for (i = 0; i < wr->send.src.num_sge; i++) {
+		if (sgl[i].len == 0)
+			continue;
+		sge->length = sgl[i].len;
+		sge->va = sgl[i].addr;
+		sge = (struct udma_wqe_sge *)udma_inc_ptr_wrap((uint8_t *)sge,
+								(uint32_t)sizeof(struct udma_wqe_sge),
+								(uint8_t *)sq->qbuf, (uint8_t *)sq->qbuf_end);
+		sge_num++;
+	}
+	*wqe_cnt = (SQE_NORMAL_CTL_LEN + (sge_num - 1) * UDMA_SGE_SIZE) / UDMA_JFS_WQEBB + 1;
+
+	ctrl->sge_num = sge_num;
+	udma_tjetty = to_udma_u_target_jetty(tjetty);
+	ctrl->rmt_jetty_or_seg_id = tjetty->id.id;
+	ctrl->token_en = udma_tjetty->token_value_valid;
+	ctrl->rmt_token_value = udma_tjetty->token_value;
+	ctrl->target_hint = wr->send.target_hint;
+
+	return 0;
+}
+
+static int udma_parse_jfs_wr(struct udma_jfs_sqe_ctl *wqe_ctl,
+			     urma_jfs_wr_t *wr, struct udma_u_jetty_queue *sq,
+			     struct udma_wqe_info *wqe_info, urma_target_jetty_t *tjetty)
+{
+	switch (wqe_info->opcode) {
+	case UDMA_OPCODE_SEND:
+		return udma_fill_send_sqe(wqe_ctl, wr, sq, tjetty, &wqe_info->wqe_cnt);
+	default:
+		return 0;
+	}
+}
+
+static bool udma_check_sq_overflow(struct udma_u_jetty_queue *sq, urma_jfs_wr_t *wr,
+				   struct udma_wqe_info *wqe_info)
+{
+	uint32_t wqe_bb_cnt = MAX_SQE_BB_NUM;
+	uint32_t wqe_ctrl_len = 0;
+	uint32_t num_sge_wr = 0;
+	uint32_t udma_opcode;
+	uint32_t sge_num = 0;
+	urma_sge_t *sgl;
+	uint32_t i;
+
+	if (!udma_sq_overflow(sq, wqe_bb_cnt))
+		return false;
+
+	udma_opcode = wqe_info->opcode;
+
+	wqe_ctrl_len = SQE_NORMAL_CTL_LEN;
+
+	if (udma_opcode == UDMA_OPCODE_SEND) {
+		num_sge_wr = wr->send.src.num_sge;
+		sgl = wr->send.src.sge;
+	}
+
+	for (i = 0; i < num_sge_wr; i++)
+		sgl[i].len == 0 ? 0 : sge_num++;
+
+	wqe_bb_cnt = (wqe_ctrl_len + (sge_num - 1) * UDMA_SGE_SIZE) / UDMA_JFS_WQEBB + 1;
+
+	return udma_sq_overflow(sq, wqe_bb_cnt);
+}
+
+static urma_status_t udma_set_sqe(struct udma_jfs_sqe_ctl *wqe_ctl,
+				  struct udma_u_jetty_queue *sq,
+				  urma_jfs_wr_t *wr, struct udma_wqe_info *wqe_info)
+{
+	struct udma_u_target_jetty *udma_tjetty;
+	urma_target_jetty_t *tjetty;
+
+	if (udma_check_sq_overflow(sq, wr, wqe_info)) {
+		UDMA_LOG_ERR("JFS overflow.\n");
+		return URMA_EINVAL;
+	}
+
+	(void)memset(wqe_ctl, 0, sizeof(*wqe_ctl));
+	wqe_ctl->opcode = wqe_info->opcode;
+	wqe_ctl->flag = wr->flag.value;
+	wqe_ctl->owner = ((sq->pi & sq->baseblk_cnt) == 0 ? 1 : 0);
+
+	if (sq->trans_mode == URMA_TM_RC)
+		tjetty = &sq->tjetty->urma_tjetty;
+	else
+		tjetty = wr->tjetty;
+
+	udma_tjetty = to_udma_u_target_jetty(tjetty);
+
+	wqe_ctl->tp_id = tjetty->tp.tpn;
+
+	memcpy(wqe_ctl->rmt_eid, &udma_tjetty->le_eid.raw, sizeof(uint8_t) *
+	       URMA_EID_SIZE);
+
+	wqe_ctl->rmt_jetty_type = (uint8_t)(tjetty->type);
+	if (udma_parse_jfs_wr(wqe_ctl, wr, sq, wqe_info, tjetty) != 0) {
+		UDMA_LOG_ERR("Failed to parse wr\n");
+		return URMA_EINVAL;
+	}
+
+	return URMA_SUCCESS;
+}
+
+urma_status_t udma_u_post_one_wr(struct udma_u_context *udma_ctx,
+				 struct udma_u_jetty_queue *sq,
+				 urma_jfs_wr_t *wr,
+				 struct udma_jfs_sqe_ctl **wqe_addr,
+				 bool *dwqe_enable)
+{
+	struct udma_wqe_info wqe_info = {};
+	uint32_t wqebb_cnt;
+	urma_status_t ret;
+	uint32_t i;
+
+	if (udma_check_sge_num_and_opcode(wr->opcode, sq, wr, &wqe_info.opcode)) {
+		UDMA_LOG_ERR("wr sge num or opcode is invalid.\n");
+		return URMA_EINVAL;
+	}
+
+	ret = udma_set_sqe((struct udma_jfs_sqe_ctl *)sq->qbuf_curr, sq, wr, &wqe_info);
+	if (ret)
+		return ret;
+
+	wqebb_cnt = wqe_info.wqe_cnt;
+
+	*wqe_addr = (struct udma_jfs_sqe_ctl *)sq->qbuf_curr;
+
+	sq->qbuf_curr = udma_inc_ptr_wrap((uint8_t *)sq->qbuf_curr,
+					  wqebb_cnt << sq->baseblk_shift,
+					  (uint8_t *)sq->qbuf,
+					  (uint8_t *)sq->qbuf_end);
+	for (i = 0; i < wqebb_cnt; i++)
+		sq->wrid[(sq->pi + i) & (sq->baseblk_cnt - 1)] = wr->user_ctx;
+	sq->pi += wqebb_cnt;
+
+	return URMA_SUCCESS;
+}
+
+urma_status_t udma_u_post_sq_wr(struct udma_u_context *udma_ctx,
+				struct udma_u_jetty_queue *sq, urma_jfs_wr_t *wr,
+				urma_jfs_wr_t **bad_wr)
+{
+	struct udma_jfs_sqe_ctl *wqe_addr;
+	urma_status_t ret = URMA_SUCCESS;
+	bool dwqe_enable = false;
+	urma_jfs_wr_t *it;
+	int wr_cnt = 0;
+
+	(void)pthread_spin_lock(&sq->lock);
+
+	for (it = wr; it != NULL; it = (urma_jfs_wr_t *)(void *)it->next) {
+		ret = udma_u_post_one_wr(udma_ctx, sq, it, &wqe_addr, &dwqe_enable);
+		if (ret) {
+			*bad_wr = (urma_jfs_wr_t *)it;
+			break;
+		}
+		wr_cnt++;
+	}
+
+	if (wr_cnt) {
+		udma_to_device_barrier();
+		udma_update_sq_db(sq);
+	}
+
+	(void)pthread_spin_unlock(&sq->lock);
+
+	return ret;
+}
+
+urma_status_t udma_u_post_jfs_wr(urma_jfs_t *jfs, urma_jfs_wr_t *wr,
+				 urma_jfs_wr_t **bad_wr)
+{
+	struct udma_u_context *udma_ctx;
+	struct udma_u_jfs *udma_jfs;
+	urma_status_t ret;
+
+	udma_jfs = to_udma_u_jfs(jfs);
+	udma_ctx = to_udma_u_ctx(jfs->urma_ctx);
+
+	ret = udma_u_post_sq_wr(udma_ctx, &udma_jfs->sq, wr, bad_wr);
+	if (ret)
+		UDMA_LOG_ERR("JFS post sq wr failed, jfs id = %u.\n",
+			     udma_jfs->sq.idx);
+
+	return ret;
+}

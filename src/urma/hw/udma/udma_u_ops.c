@@ -36,6 +36,7 @@ static urma_ops_t g_udma_ops = {
 	.import_jetty_ex = udma_u_import_jetty_ex,
 	.import_jfr_ex = udma_u_import_jfr_ex,
 	.bind_jetty_ex = udma_u_bind_jetty_ex,
+	.post_jfs_wr = udma_u_post_jfs_wr,
 	.post_jfr_wr = udma_u_post_jfr_wr,
 };
 
