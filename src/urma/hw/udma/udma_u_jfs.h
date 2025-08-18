@@ -67,6 +67,7 @@ struct udma_token_info {
 enum udma_jfs_opcode {
 	UDMA_OPCODE_SEND = 0x00,
 	UDMA_OPCODE_SEND_WITH_IMM,
+	UDMA_OPCODE_SEND_WITH_INVALID,
 };
 
 #define MAX_SQE_BB_NUM 4
