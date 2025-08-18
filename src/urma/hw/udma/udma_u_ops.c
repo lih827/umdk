@@ -13,6 +13,7 @@
 #include "udma_u_jfc.h"
 #include "udma_u_jfs.h"
 #include "udma_u_jfr.h"
+#include "udma_u_jetty.h"
 #include "udma_u_db.h"
 #include "udma_u_ops.h"
 
@@ -24,6 +25,8 @@ static urma_ops_t g_udma_ops = {
 	.delete_jfs = udma_u_delete_jfs,
 	.create_jfr = udma_u_create_jfr,
 	.delete_jfr = udma_u_delete_jfr,
+	.create_jetty = udma_u_create_jetty,
+	.delete_jetty = udma_u_delete_jetty,
 };
 
 static urma_status_t udma_u_init(urma_init_attr_t *conf)

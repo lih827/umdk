@@ -1,0 +1,198 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Copyright (c) 2025 HiSilicon Technologies Co., Ltd. All rights reserved.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ *
+ */
+
+#include <errno.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include "udma_u_common.h"
+#include "udma_u_jfs.h"
+#include "udma_u_jfr.h"
+#include "udma_u_jfc.h"
+#include "udma_u_buf.h"
+#include "udma_u_db.h"
+#include "udma_u_jetty.h"
+
+int exec_jetty_create_cmd(urma_context_t *ctx, struct udma_u_jetty *jetty,
+			  urma_jetty_cfg_t *cfg)
+{
+	struct udma_create_jetty_ucmd cmd = {};
+	urma_cmd_udrv_priv_t udata = {};
+	int ret;
+
+	if (cfg->jfs_cfg.priority >= UDMA_MAX_PRIORITY) {
+		UDMA_LOG_ERR("user mode jetty priority is out of range, priority is %u.\n",
+			     cfg->jfs_cfg.priority);
+		return EINVAL;
+	}
+
+	cmd.buf_addr = (uintptr_t)jetty->sq.qbuf;
+	cmd.buf_len = jetty->sq.qbuf_size;
+	cmd.db_addr = (uintptr_t)jetty->sq.db.addr;
+	cmd.jetty_addr = (uintptr_t)&jetty->sq;
+	cmd.sqe_bb_cnt = jetty->sq.sqe_bb_cnt;
+	cmd.jetty_type = jetty->jetty_type;
+
+	udma_u_set_udata(&udata, &cmd, (uint32_t)sizeof(cmd), NULL, 0);
+	ret = urma_cmd_create_jetty(ctx, &jetty->base, cfg, &udata);
+	if (ret) {
+		UDMA_LOG_ERR("urma create jetty failed.\n");
+		return ret;
+	}
+
+	jetty->sq.idx = jetty->base.jetty_id.id;
+	jetty->sq.db.id = jetty->base.jetty_id.id;
+
+	return 0;
+}
+
+int init_jetty_trans_mode(struct udma_u_jetty *jetty, urma_jetty_cfg_t *cfg)
+{
+	urma_jfr_cfg_t *jfr_cfg = &cfg->shared.jfr->jfr_cfg;
+
+	if (cfg->jfs_cfg.trans_mode == jfr_cfg->trans_mode) {
+		jetty->sq.trans_mode = jfr_cfg->trans_mode;
+		return 0;
+	}
+
+	UDMA_LOG_ERR("transmode of jfs and jfr is not equal,"
+		     "jfs trans_mode is %u, jfr trans_mode is %u.\n",
+		     cfg->jfs_cfg.trans_mode, jfr_cfg->trans_mode);
+
+	return EINVAL;
+}
+
+urma_jetty_t *udma_u_create_jetty(urma_context_t *ctx, urma_jetty_cfg_t *cfg)
+{
+	struct udma_u_context *udma_ctx = to_udma_u_ctx(ctx);
+	struct udma_u_jetty *jetty;
+	int ret;
+
+	jetty = (struct udma_u_jetty *)calloc(1, sizeof(struct udma_u_jetty));
+	if (jetty == NULL) {
+		UDMA_LOG_ERR("memory allocation failed.\n");
+		return NULL;
+	}
+
+	ret = init_jetty_trans_mode(jetty, cfg);
+	if (ret) {
+		UDMA_LOG_ERR("init jetty transmode failed.\n");
+		goto err_create_sq;
+	}
+
+	ret = udma_u_create_sq(&jetty->sq, &cfg->jfs_cfg);
+	if (ret) {
+		UDMA_LOG_ERR("Jetty create sq failed.\n");
+		goto err_create_sq;
+	}
+
+	jetty->jfr = to_udma_u_jfr(cfg->shared.jfr);
+	jetty->jetty_type = UDMA_URMA_NORMAL_JETTY_TYPE;
+	if (exec_jetty_create_cmd(ctx, jetty, cfg)) {
+		UDMA_LOG_ERR("failed to create jetty.\n");
+		goto err_jetty_create_cmd;
+	}
+
+	jetty->sq.db.type = UDMA_MMAP_JETTY_DSQE;
+	if (udma_u_alloc_db(ctx, &jetty->sq.db))
+		goto err_alloc_db;
+
+	jetty->sq.dwqe_addr = (void *)jetty->sq.db.addr;
+	if (udma_u_jetty_queue_insert(udma_ctx, &jetty->sq, UDMA_U_JETTY_TBL))
+		goto err_insert_node;
+
+	return &jetty->base;
+
+err_insert_node:
+	udma_u_free_db(ctx, &jetty->sq.db);
+err_alloc_db:
+	(void)urma_cmd_delete_jetty(&jetty->base);
+err_jetty_create_cmd:
+	udma_u_delete_sq(&jetty->sq);
+err_create_sq:
+	free(jetty);
+
+	return NULL;
+}
+
+static urma_status_t udma_u_delete_jetty_prepare(urma_jetty_t *jetty)
+{
+	struct udma_u_context *udma_ctx = to_udma_u_ctx(jetty->urma_ctx);
+	struct udma_u_jetty *udma_jetty = to_udma_u_jetty(jetty);
+	struct udma_u_jetty_queue *sq = &udma_jetty->sq;
+	int ret;
+
+	udma_u_jetty_queue_remove(udma_ctx, sq, UDMA_U_JETTY_TBL);
+	if (sq->trans_mode == URMA_TM_RC && sq->tjetty) {
+		ret = udma_u_unbind_jetty(jetty);
+		if (ret) {
+			UDMA_LOG_ERR("unbind jetty failed, jetty_id %u.\n", sq->idx);
+			return URMA_FAIL;
+		}
+	}
+
+	return URMA_SUCCESS;
+}
+
+static void udma_u_free_jetty(urma_jetty_t *jetty)
+{
+	struct udma_u_jetty *udma_jetty = to_udma_u_jetty(jetty);
+
+	udma_u_free_db(jetty->urma_ctx, &udma_jetty->sq.db);
+	udma_u_delete_sq(&udma_jetty->sq);
+	free(udma_jetty);
+}
+
+urma_status_t udma_u_delete_jetty(urma_jetty_t *jetty)
+{
+	int ret;
+
+	ret = udma_u_delete_jetty_prepare(jetty);
+	if (ret)
+		return URMA_FAIL;
+
+	ret = urma_cmd_delete_jetty(jetty);
+	if (ret) {
+		UDMA_LOG_ERR("jetty delete failed, ret = %d.\n", ret);
+		return URMA_FAIL;
+	}
+
+	udma_u_free_jetty(jetty);
+
+	return URMA_SUCCESS;
+}
+
+urma_status_t udma_u_unbind_jetty(urma_jetty_t *jetty)
+{
+	struct udma_u_jetty *udma_jetty = to_udma_u_jetty(jetty);
+	urma_target_jetty_t *tjetty = jetty->remote_jetty;
+	int ret;
+
+	if (tjetty == NULL || udma_jetty->sq.tjetty == NULL) {
+		UDMA_LOG_ERR("The Jetty not bind a remote Jetty, id = %u.\n",
+			     jetty->jetty_id.id);
+		return URMA_EINVAL;
+	}
+
+	if (udma_jetty->sq.trans_mode != URMA_TM_RC ||
+	    tjetty->trans_mode != URMA_TM_RC) {
+		UDMA_LOG_ERR("The transmode of Jetty or tJetty is not rc.\n");
+		return URMA_EINVAL;
+	}
+
+	ret = urma_cmd_unbind_jetty(jetty);
+	if (ret) {
+		UDMA_LOG_ERR("urma cmd unbind jetty failed, ret = %d.\n", ret);
+		return URMA_FAIL;
+	}
+
+	udma_jetty->sq.tjetty = NULL;
+	tjetty->tp.tpn = INVALID_TPN;
+
+	return URMA_SUCCESS;
+}

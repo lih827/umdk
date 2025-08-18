@@ -123,6 +123,13 @@ struct udma_u_jfs {
 	uint32_t jfs_type;
 };
 
+struct udma_u_jetty {
+	urma_jetty_t base;
+	struct udma_u_jetty_queue sq;
+	struct udma_u_jfr *jfr;
+	uint32_t jetty_type;
+};
+
 struct udma_u_jfc {
 	urma_jfc_t base;
 	struct udma_u_jetty_queue cq;
@@ -224,6 +231,11 @@ static inline off_t get_mmap_offset(uint32_t idx, int page_size, uint32_t cmd)
 static inline struct udma_u_jfs *to_udma_u_jfs(urma_jfs_t *jfs)
 {
 	return container_of(jfs, struct udma_u_jfs, base);
+}
+
+static inline struct udma_u_jetty *to_udma_u_jetty(urma_jetty_t *jetty)
+{
+	return container_of(jetty, struct udma_u_jetty, base);
 }
 
 static inline struct udma_u_jfc *to_udma_u_jfc(urma_jfc_t *jfc)
