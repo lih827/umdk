@@ -163,5 +163,6 @@ urma_status_t udma_u_post_one_wr(struct udma_u_context *udma_ctx,
 				 struct udma_jfs_sqe_ctl **wqe_addr,
 				 bool *dwqe_enable);
 void udma_reset_sw_u_jetty_queue(struct udma_u_jetty_queue *sq);
+urma_status_t udma_u_delete_jfs_batch(urma_jfs_t **jfs, int jfs_cnt, urma_jfs_t **bad_jfs);
 
 #endif /* __UDMA_U_JFS_H__ */

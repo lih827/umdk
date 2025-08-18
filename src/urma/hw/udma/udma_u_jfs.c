@@ -218,6 +218,29 @@ urma_status_t udma_u_delete_jfs(urma_jfs_t *jfs)
 	return URMA_SUCCESS;
 }
 
+urma_status_t udma_u_delete_jfs_batch(urma_jfs_t **jfs, int jfs_cnt, urma_jfs_t **bad_jfs)
+{
+	int i;
+
+	if (!jfs) {
+		UDMA_LOG_ERR("jfs array is null.\n");
+		return URMA_EINVAL;
+	}
+
+	if (!jfs_cnt) {
+		UDMA_LOG_ERR("jfs cnt is 0.\n");
+		return URMA_EINVAL;
+	}
+
+	if (urma_cmd_delete_jfs_batch(jfs, jfs_cnt, bad_jfs))
+		return URMA_FAIL;
+
+	for (i = 0; i < jfs_cnt; i++)
+		udma_u_free_jfs(jfs[i]);
+
+	return URMA_SUCCESS;
+}
+
 #ifdef ST64B
 static void st64b(uint64_t *src, uint64_t *dst)
 {
