@@ -25,11 +25,13 @@
 #include "udma_u_hmap.h"
 
 #define UDMA_JFS_WQEBB 64
+#define UDMA_JFR_WQEBB 16U
 #define UDMA_HW_PAGE_SIZE 4096U
 #define UDMA_BITS_PER_LONG 64
 #define UDMA_BITS_PER_LONG_SHIFT 6
 #define UDMA_SGE_SIZE 16
 #define UDMA_JFC_DB_OFFSET 0
+#define min(x, y) ((x) < (y) ? (x) : (y))
 
 struct udma_u_doorbell {
 	uint32_t id;
@@ -62,6 +64,7 @@ struct udma_u_context {
 	uint32_t		ue_id;
 	uint32_t		chip_id;
 	uint32_t		die_id;
+	uint32_t		jfr_sge;
 	struct node_tbl		src_idx_tbl[UDMA_U_TBL_NUM];
 };
 
@@ -91,6 +94,26 @@ struct udma_u_jetty_queue {
 	uint32_t old_entry_idx;
 	bool lock_free;
 	struct udma_u_hmap_node hmap_node;
+};
+
+struct udma_u_jfr_idx_que {
+	struct udma_u_buf buf;
+	uint32_t entry_shift;
+	uint64_t *bitmap;
+	uint32_t bitmap_cnt;
+};
+
+struct udma_u_jfr {
+	urma_jfr_t base;
+	struct udma_u_jetty_queue rq;
+	struct udma_u_jfr_idx_que idx_que;
+	uint32_t wqe_cnt;
+	uint32_t wqe_shift;
+	uint32_t max_sge;
+	uint32_t cap_flags;
+	uint32_t *sw_db;
+	pthread_spinlock_t lock;
+	bool lock_free;
 };
 
 struct udma_u_jfs {
@@ -126,6 +149,8 @@ struct udma_u_jfc {
 
 #define ilog32(_v) ((uint32_t)builtin_ilog32_nz(_v)&((_v) == 0UL ? 0UL : 0xFFFFFFFFUL))
 #define ilog64(_v) ((uint64_t)builtin_ilog64_nz(_v)&((_v) == 0ULL ? 0ULL : 0xFFFFFFFFFFFFFFFFULL))
+
+#define udma_u_ilog32(n) ilog32((uint32_t)(n) - 1)
 
 #define check_types_match(expr1, expr2)		\
 	((typeof(expr1) *)0 != (typeof(expr2) *)0)
@@ -163,6 +188,11 @@ static inline unsigned long align(unsigned long val, unsigned long align)
 static inline struct udma_u_context *to_udma_u_ctx(urma_context_t *ctx)
 {
 	return container_of(ctx, struct udma_u_context, urma_ctx);
+}
+
+static inline struct udma_u_jfr *to_udma_u_jfr(urma_jfr_t *jfr)
+{
+	return container_of(jfr, struct udma_u_jfr, base);
 }
 
 /* index value is offset[32:8] */
@@ -209,6 +239,34 @@ static inline uint32_t align_power2(uint32_t n)
 		res++;
 
 	return res;
+}
+
+static inline int udma_u_jetty_queue_insert(struct udma_u_context *udma_ctx,
+					    struct udma_u_jetty_queue *queue,
+					    enum udma_u_node_tbl_type type)
+{
+	int ret;
+
+	(void)pthread_rwlock_wrlock(&udma_ctx->src_idx_tbl[type].rwlock);
+
+	ret = udma_u_hmap_insert(&udma_ctx->src_idx_tbl[type].hmap,
+				 &queue->hmap_node, queue->idx);
+	if (ret == EINVAL)
+		UDMA_LOG_ERR("insert queue failed idx = %u.\n", queue->idx);
+
+	(void)pthread_rwlock_unlock(&udma_ctx->src_idx_tbl[type].rwlock);
+
+	return ret;
+}
+
+static inline void udma_u_jetty_queue_remove(struct udma_u_context *udma_ctx,
+					     struct udma_u_jetty_queue *queue,
+					     enum udma_u_node_tbl_type type)
+{
+	(void)pthread_rwlock_wrlock(&udma_ctx->src_idx_tbl[type].rwlock);
+	udma_u_hmap_remove(&udma_ctx->src_idx_tbl[type].hmap,
+			   &queue->hmap_node);
+	(void)pthread_rwlock_unlock(&udma_ctx->src_idx_tbl[type].rwlock);
 }
 
 static inline uint32_t calc_mask(uint32_t capacity)

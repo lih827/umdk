@@ -12,6 +12,7 @@
 #include <sys/mman.h>
 #include "udma_u_jfc.h"
 #include "udma_u_jfs.h"
+#include "udma_u_jfr.h"
 #include "udma_u_db.h"
 #include "udma_u_ops.h"
 
@@ -21,6 +22,8 @@ static urma_ops_t g_udma_ops = {
 	.delete_jfc = udma_u_delete_jfc,
 	.create_jfs = udma_u_create_jfs,
 	.delete_jfs = udma_u_delete_jfs,
+	.create_jfr = udma_u_create_jfr,
+	.delete_jfr = udma_u_delete_jfr,
 };
 
 static urma_status_t udma_u_init(urma_init_attr_t *conf)
@@ -53,6 +56,7 @@ static void udma_u_init_context(struct udma_u_context *udma_ctx,
 	udma_ctx->ue_id = resp->ue_id;
 	udma_ctx->chip_id = resp->chip_id;
 	udma_ctx->die_id = resp->die_id;
+	udma_ctx->jfr_sge = resp->jfr_sge;
 }
 
 static urma_context_t *udma_u_create_context(urma_device_t *dev, uint32_t eid_index,

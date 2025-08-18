@@ -1,0 +1,218 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Copyright (c) 2025 HiSilicon Technologies Co., Ltd. All rights reserved.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ *
+ */
+
+#include <errno.h>
+#include "urma_private.h"
+#include "udma_u_buf.h"
+#include "udma_u_db.h"
+#include "udma_u_jfc.h"
+#include "udma_u_jfr.h"
+
+int udma_u_verify_jfr_param(urma_context_t *ctx, urma_jfr_cfg_t *cfg)
+{
+	urma_device_cap_t *cap = &ctx->dev->sysfs_dev->dev_attr.dev_cap;
+
+	if (!cfg->max_sge || !cfg->depth || cfg->depth > cap->max_jfr_depth ||
+	    cfg->max_sge > cap->max_jfr_sge) {
+		UDMA_LOG_ERR("Invalid jfr param, depth = %u, max_sge = %u.\n",
+			     cfg->depth, cfg->max_sge);
+		return EINVAL;
+	}
+
+	if (cfg->flag.bs.token_policy > URMA_TOKEN_PLAIN_TEXT) {
+		UDMA_LOG_ERR("jfr token policy = %d is not supported now.\n",
+			     cfg->flag.bs.token_policy);
+		return EINVAL;
+	}
+
+	return 0;
+}
+
+void udma_u_init_jfr_param(struct udma_u_jfr *jfr, urma_jfr_cfg_t *cfg)
+{
+	if (cfg->depth < UDMA_U_MIN_JFR_DEPTH)
+		jfr->wqe_cnt = UDMA_U_MIN_JFR_DEPTH;
+	else
+		jfr->wqe_cnt = roundup_pow_of_two(cfg->depth);
+
+	jfr->max_sge = roundup_pow_of_two(cfg->max_sge);
+	jfr->rq.trans_mode  = cfg->trans_mode;
+	jfr->wqe_shift = udma_u_ilog32(roundup_pow_of_two(UDMA_SGE_SIZE *
+							  jfr->max_sge));
+}
+
+static int udma_u_create_rq(struct udma_u_context *udma_ctx,
+			    struct udma_u_jfr *jfr)
+{
+	struct udma_u_jetty_queue *rq = &jfr->rq;
+	uint32_t sge_per_wqe;
+	uint32_t wqebb_cnt;
+
+	sge_per_wqe = min(jfr->max_sge, udma_ctx->jfr_sge);
+	wqebb_cnt = sge_per_wqe * jfr->wqe_cnt;
+
+	if (!udma_u_alloc_queue_buf(rq, wqebb_cnt, UDMA_JFR_WQEBB,
+				   UDMA_HW_PAGE_SIZE, true)) {
+		UDMA_LOG_ERR("failed to alloc jfr wqe buf.\n");
+		return EINVAL;
+	}
+
+	return 0;
+}
+
+int exec_jfr_create_cmd(urma_context_t *ctx, struct udma_u_jfr *jfr,
+			urma_jfr_cfg_t *cfg)
+{
+	struct udma_create_jetty_ucmd cmd = {};
+	struct udma_create_jfr_resp resp = {};
+	urma_cmd_udrv_priv_t udata = {};
+	int ret;
+
+	cmd.buf_addr = (uintptr_t)jfr->rq.qbuf;
+	cmd.buf_len = jfr->rq.qbuf_size;
+	/* JFR only support record db */
+	cmd.db_addr = (uintptr_t)jfr->sw_db;
+	cmd.idx_addr = (uintptr_t)jfr->idx_que.buf.buf;
+	cmd.idx_len = jfr->idx_que.buf.length;
+	cmd.jetty_addr = (uintptr_t)&jfr->rq;
+
+	udma_u_set_udata(&udata, &cmd, sizeof(cmd), &resp, sizeof(resp));
+	ret = urma_cmd_create_jfr(ctx, &jfr->base, cfg, &udata);
+	if (ret)
+		return ret;
+
+	jfr->cap_flags = resp.jfr_caps;
+	jfr->rq.idx = jfr->base.jfr_id.id;
+
+	return 0;
+}
+
+static int udma_u_alloc_jfr_idx_que(struct udma_u_jfr *jfr)
+{
+	struct udma_u_jfr_idx_que *idx_que = &jfr->idx_que;
+	uint32_t buf_size;
+
+	idx_que->entry_shift = udma_u_ilog32(UDMA_JFR_IDX_QUE_ENTRY_SZ);
+	idx_que->bitmap = udma_bitmap_alloc(jfr->wqe_cnt, &idx_que->bitmap_cnt);
+	if (!idx_que->bitmap)
+		return ENOMEM;
+
+	buf_size = align(jfr->wqe_cnt << idx_que->entry_shift,
+			 UDMA_HW_PAGE_SIZE);
+	idx_que->buf.length = align(buf_size, UDMA_HW_PAGE_SIZE);
+	idx_que->buf.buf = udma_u_alloc_buf(idx_que->buf.length);
+	if (!idx_que->buf.buf) {
+		udma_bitmap_free(idx_que->bitmap);
+		idx_que->bitmap = NULL;
+		return ENOMEM;
+	}
+
+	return 0;
+}
+
+static void udma_u_free_idx_que(struct udma_u_jfr_idx_que *idx_que)
+{
+	udma_u_free_buf(idx_que->buf.buf, idx_que->buf.length);
+	udma_bitmap_free(idx_que->bitmap);
+}
+
+urma_jfr_t *udma_u_create_jfr(urma_context_t *ctx, urma_jfr_cfg_t *cfg)
+{
+	struct udma_u_context *udma_ctx = to_udma_u_ctx(ctx);
+	struct udma_u_jfr *udma_jfr;
+	int ret;
+
+	if (udma_u_verify_jfr_param(ctx, cfg))
+		return NULL;
+
+	udma_jfr = (struct udma_u_jfr *)calloc(1, sizeof(*udma_jfr));
+	if (!udma_jfr) {
+		UDMA_LOG_ERR("alloc jfr failed.\n");
+		return NULL;
+	}
+
+	udma_u_init_jfr_param(udma_jfr, cfg);
+
+	if (pthread_spin_init(&udma_jfr->lock, PTHREAD_PROCESS_PRIVATE))
+		goto err_spin_init;
+
+	if (udma_u_alloc_jfr_idx_que(udma_jfr)) {
+		UDMA_LOG_ERR("failed to create jfr idx que.\n");
+		goto err_alloc_idx;
+	}
+
+	if (udma_u_create_rq(udma_ctx, udma_jfr)) {
+		UDMA_LOG_ERR("failed to create jfr rqe buf.\n");
+		goto err_create_rq;
+	}
+
+	udma_jfr->sw_db = (uint32_t *)udma_u_alloc_sw_db(udma_ctx,
+							 UDMA_JFR_TYPE_DB);
+	if (!udma_jfr->sw_db)
+		goto err_alloc_sw_db;
+
+	ret = exec_jfr_create_cmd(ctx, udma_jfr, cfg);
+	if (ret) {
+		UDMA_LOG_ERR("urma cmd create jfr failed, ret = %d.\n", ret);
+		goto err_exec_cmd;
+	}
+
+	if (udma_u_jetty_queue_insert(udma_ctx, &udma_jfr->rq, UDMA_U_JFR_TBL))
+		goto err_insert_node;
+
+	return &udma_jfr->base;
+
+err_insert_node:
+	(void)urma_cmd_delete_jfr(&udma_jfr->base);
+err_exec_cmd:
+	udma_u_free_sw_db(udma_ctx, udma_jfr->sw_db, UDMA_JFR_TYPE_DB);
+err_alloc_sw_db:
+	udma_u_free_queue_buf(&udma_jfr->rq);
+err_create_rq:
+	udma_u_free_idx_que(&udma_jfr->idx_que);
+err_alloc_idx:
+	pthread_spin_destroy(&udma_jfr->lock);
+err_spin_init:
+	free(udma_jfr);
+	return NULL;
+}
+
+static void udma_u_free_jfr(urma_jfr_t *jfr)
+{
+	struct udma_u_context *udma_ctx = to_udma_u_ctx(jfr->urma_ctx);
+	struct udma_u_jfr *udma_jfr = to_udma_u_jfr(jfr);
+
+	udma_u_free_sw_db(udma_ctx, udma_jfr->sw_db, UDMA_JFR_TYPE_DB);
+
+	udma_u_free_queue_buf(&udma_jfr->rq);
+
+	udma_u_free_idx_que(&udma_jfr->idx_que);
+
+	(void)pthread_spin_destroy(&udma_jfr->lock);
+
+	free(udma_jfr);
+}
+
+urma_status_t udma_u_delete_jfr(urma_jfr_t *jfr)
+{
+	struct udma_u_context *udma_ctx = to_udma_u_ctx(jfr->urma_ctx);
+	struct udma_u_jfr *udma_jfr = to_udma_u_jfr(jfr);
+	int ret;
+
+	udma_u_jetty_queue_remove(udma_ctx, &udma_jfr->rq, UDMA_U_JFR_TBL);
+	ret = urma_cmd_delete_jfr(jfr);
+	if (ret) {
+		UDMA_LOG_ERR("urma cmd delete jfr failed, ret = %d.\n", ret);
+		return URMA_FAIL;
+	}
+
+	udma_u_free_jfr(jfr);
+
+	return URMA_SUCCESS;
+}

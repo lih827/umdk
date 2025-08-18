@@ -33,6 +33,60 @@ static void udma_u_hmap_destroy(struct udma_u_hmap *hmap)
 	hmap->bucket = NULL;
 }
 
+struct udma_u_hmap_node
+*udma_u_hmap_first_with_hash(const struct udma_u_hmap *hmap, uint32_t hash)
+{
+	struct udma_u_hmap_head *head = &hmap->bucket[hash & hmap->mask];
+	struct udma_u_hmap_node *node;
+
+	if (head == NULL)
+		return NULL;
+
+	node = head->next;
+
+	while (node != NULL && node->hash != hash)
+		node = node->next;
+
+	return node;
+}
+
+int udma_u_hmap_insert(struct udma_u_hmap *hmap,
+		       struct udma_u_hmap_node *node,
+		       uint32_t hash)
+{
+	struct udma_u_hmap_head *head = &hmap->bucket[hash & hmap->mask];
+
+	if (udma_u_hmap_first_with_hash(hmap, hash))
+		return EINVAL;
+
+	node->hash = hash;
+	node->next = head->next;
+	head->next = node;
+	hmap->count++;
+
+	return 0;
+}
+
+void udma_u_hmap_remove(struct udma_u_hmap *hmap,
+			const struct udma_u_hmap_node *node)
+{
+	struct udma_u_hmap_node *pre_node =
+		(struct udma_u_hmap_node *)&hmap->bucket[node->hash & hmap->mask];
+	struct udma_u_hmap_node *tmp_node = pre_node->next;
+
+	while (tmp_node != NULL) {
+		struct udma_u_hmap_node *next_node = tmp_node->next;
+
+		if (tmp_node == node) {
+			pre_node->next = next_node;
+			hmap->count--;
+			return;
+		}
+		pre_node = tmp_node;
+		tmp_node = next_node;
+	}
+}
+
 static void udma_u_destroy_node(struct node_tbl *node_tbl, int size)
 {
 	int i;

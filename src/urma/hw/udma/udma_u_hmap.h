@@ -41,6 +41,13 @@ struct node_tbl {
 	struct udma_u_hmap hmap;
 };
 
+int udma_u_hmap_insert(struct udma_u_hmap *hmap,
+		       struct udma_u_hmap_node *node,
+		       uint32_t hash);
+void udma_u_hmap_remove(struct udma_u_hmap *hmap,
+			const struct udma_u_hmap_node *node);
+struct udma_u_hmap_node
+*udma_u_hmap_first_with_hash(const struct udma_u_hmap *hmap, uint32_t hash);
 int udma_u_init_node_tbl(struct node_tbl *node_tbl);
 void udma_u_uninit_node_tbl(struct node_tbl *node_tbl);
 #endif /* __UDMA_H_HMAP__ */
