@@ -10,11 +10,14 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <sys/mman.h>
+#include "udma_u_jfs.h"
 #include "udma_u_db.h"
 #include "udma_u_ops.h"
 
 static urma_ops_t g_udma_ops = {
 	.name = "UDMA_OPS",
+	.create_jfs = udma_u_create_jfs,
+	.delete_jfs = udma_u_delete_jfs,
 };
 
 static urma_status_t udma_u_init(urma_init_attr_t *conf)

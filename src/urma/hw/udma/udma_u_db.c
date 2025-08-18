@@ -24,7 +24,7 @@ int udma_u_alloc_db(struct urma_context *urma_ctx, struct udma_u_doorbell *db)
 	db->addr = mmap(NULL, udma_u_ctx->page_size, PROT_READ | PROT_WRITE,
 			MAP_SHARED, urma_ctx->dev_fd, offset);
 	if (db->addr == MAP_FAILED) {
-		UDMA_LOG_ERR("failed to mmap doorbell page, id = %u, type = %d.",
+		UDMA_LOG_ERR("failed to mmap doorbell page, id = %u, type = %u.\n",
 			     db->id, db->type);
 		return EINVAL;
 	}

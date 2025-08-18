@@ -24,7 +24,9 @@
 #include "udma_u_log.h"
 #include "udma_u_hmap.h"
 
+#define UDMA_JFS_WQEBB 64
 #define UDMA_HW_PAGE_SIZE 4096U
+#define UDMA_SGE_SIZE 16
 #define UDMA_JFC_DB_OFFSET 0
 
 struct udma_u_doorbell {
@@ -46,12 +48,55 @@ struct udma_u_context {
 	struct node_tbl		src_idx_tbl[UDMA_U_TBL_NUM];
 };
 
+struct udma_u_jetty_queue {
+	/* Command queue */
+	void *qbuf; /* Base virtual address of command buffer */
+	void *qbuf_end;
+	uint32_t qbuf_size; /* Command buffer size */
+	void *qbuf_curr; /* Virtual address to store the current command */
+	uint32_t pi; /* Producer index of a queue. */
+	uint32_t ci; /* Consumer index of a queue */
+	uint32_t idx; /* JETTY ID */
+	struct udma_u_doorbell db; /* doorbell info */
+	/* Wqe or cqe base block */
+	uint32_t baseblk_shift;
+	uint32_t baseblk_cnt;
+	uint32_t baseblk_mask;
+	uintptr_t *wrid; /* Work Request ID */
+	pthread_spinlock_t lock; /* protect the @qbuf, @qbuf_curr, @wrid, @pi, and @ci. */
+	uint32_t max_inline_size;
+	void *dwqe_addr;
+	struct udma_u_target_jetty *tjetty;
+	urma_transport_mode_t trans_mode;
+	uint32_t sqe_bb_cnt;
+	uint32_t max_sge_num;
+	bool flush_flag;
+	uint32_t old_entry_idx;
+	bool lock_free;
+	struct udma_u_hmap_node hmap_node;
+};
+
+struct udma_u_jfs {
+	urma_jfs_t base;
+	struct udma_u_jetty_queue sq;
+	bool pi_type;
+	uint32_t jfs_type;
+};
+
 #if INT_MAX >= 2147483647
 #define builtin_ilog32_nz(v) \
 	(((int)sizeof(uint32_t) * CHAR_BIT) - __builtin_clz(v))
 #elif LONG_MAX >= 2147483647L
 #define builtin_ilog32_nz(v) \
 	(((int)sizeof(uint32_t) * CHAR_BIT) - __builtin_clzl(v))
+#endif
+
+#if INT_MAX >= 9223372036854775807LL
+#define builtin_ilog64_nz(v) \
+	(((int)sizeof(uint32_t) * CHAR_BIT) - __builtin_clz(v))
+#elif LONG_MAX >= 9223372036854775807LL
+#define builtin_ilog64_nz(v) \
+	(((int)sizeof(uint64_t) * CHAR_BIT) - __builtin_clzl(v))
 #endif
 
 #define ilog32(_v) ((uint32_t)builtin_ilog32_nz(_v)&((_v) == 0UL ? 0UL : 0xFFFFFFFFUL))
@@ -78,6 +123,16 @@ static inline void udma_u_set_udata(urma_cmd_udrv_priv_t *udrv_data,
 	udrv_data->in_len = in_len;
 	udrv_data->out_addr = (uint64_t)out_addr;
 	udrv_data->out_len = out_len;
+}
+
+static inline uint64_t roundup_pow_of_two(uint64_t n)
+{
+	return n == 1ULL ? 1ULL : 1ULL << ilog64(n - 1ULL);
+}
+
+static inline unsigned long align(unsigned long val, unsigned long align)
+{
+	return (val + align - 1UL) & ~(align - 1UL);
 }
 
 static inline struct udma_u_context *to_udma_u_ctx(urma_context_t *ctx)
@@ -109,6 +164,21 @@ static inline off_t get_mmap_offset(uint32_t idx, int page_size, uint32_t cmd)
 	udma_mmap_set_index(idx, &offset);
 
 	return offset * page_size;
+}
+
+static inline struct udma_u_jfs *to_udma_u_jfs(urma_jfs_t *jfs)
+{
+	return container_of(jfs, struct udma_u_jfs, base);
+}
+
+static inline uint32_t align_power2(uint32_t n)
+{
+	uint32_t res = 0;
+
+	while ((1U << res) < n)
+		res++;
+
+	return res;
 }
 
 static inline uint32_t calc_mask(uint32_t capacity)
