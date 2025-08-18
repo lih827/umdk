@@ -437,6 +437,68 @@ int udma_u_poll_jfc(urma_jfc_t *jfc, int cr_cnt, urma_cr_t *cr)
 	return ret == JFC_POLL_ERR ? -UDMA_INTER_ERR : npolled;
 }
 
+static int udma_u_check_jfc_cqe_period(uint16_t cqe_period)
+{
+	uint16_t period[] = {
+		UDMA_CQE_PERIOD_0,
+		UDMA_CQE_PERIOD_4,
+		UDMA_CQE_PERIOD_16,
+		UDMA_CQE_PERIOD_64,
+		UDMA_CQE_PERIOD_256,
+		UDMA_CQE_PERIOD_1024,
+		UDMA_CQE_PERIOD_4096,
+		UDMA_CQE_PERIOD_16384
+	};
+	uint32_t i;
+
+	for (i = 0; i < ARRAY_SIZE(period); ++i) {
+		if (cqe_period == period[i])
+			return 0;
+	}
+
+	return EINVAL;
+}
+
+static int udma_u_check_jfc_attr(urma_jfc_attr_t *attr)
+{
+	if (!(attr->mask & (JFC_MODERATE_COUNT | JFC_MODERATE_PERIOD))) {
+		UDMA_LOG_ERR("JFC modify mask is not set or invalid.\n");
+		return EINVAL;
+	}
+
+	if ((attr->mask & JFC_MODERATE_COUNT) &&
+	    (attr->moderate_count >= UDMA_CQE_COALESCE_CNT_MAX)) {
+		UDMA_LOG_ERR("cqe coalesce cnt %u is invalid.\n",
+			     attr->moderate_count);
+		return EINVAL;
+	}
+
+	if ((attr->mask & JFC_MODERATE_PERIOD) &&
+	    (udma_u_check_jfc_cqe_period(attr->moderate_period))) {
+		UDMA_LOG_ERR("cqe coalesce period %u is invalid.\n",
+			     attr->moderate_period);
+		return EINVAL;
+	}
+
+	return 0;
+}
+
+urma_status_t udma_u_modify_jfc(urma_jfc_t *jfc, urma_jfc_attr_t *attr)
+{
+	int ret;
+
+	if (udma_u_check_jfc_attr(attr))
+		return URMA_EINVAL;
+
+	ret = urma_cmd_modify_jfc(jfc, attr, NULL);
+	if (ret) {
+		UDMA_LOG_ERR("modify jfc failed, ret = %d.\n", ret);
+		return URMA_FAIL;
+	}
+
+	return URMA_SUCCESS;
+}
+
 void udma_u_clean_jfc(struct urma_jfc *jfc, uint32_t jetty_id)
 {
 	struct udma_u_context *udma_ctx = to_udma_u_ctx(jfc->urma_ctx);

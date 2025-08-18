@@ -65,5 +65,6 @@ static inline void *get_u_buf_entry(struct udma_u_jetty_queue *cq, uint32_t n)
 urma_jfc_t *udma_u_create_jfc(urma_context_t *ctx, urma_jfc_cfg_t *cfg);
 urma_status_t udma_u_delete_jfc(urma_jfc_t *jfc);
 int udma_u_poll_jfc(urma_jfc_t *jfc, int cr_cnt, urma_cr_t *cr);
+urma_status_t udma_u_modify_jfc(urma_jfc_t *jfc, urma_jfc_attr_t *attr);
 void udma_u_clean_jfc(struct urma_jfc *jfc, uint32_t jetty_id);
 #endif /* __UDMA_U_JFC_H__ */
