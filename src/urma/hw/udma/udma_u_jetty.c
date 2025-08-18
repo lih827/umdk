@@ -342,6 +342,31 @@ urma_status_t udma_u_unbind_jetty(urma_jetty_t *jetty)
 	return URMA_SUCCESS;
 }
 
+urma_status_t udma_u_modify_jetty(urma_jetty_t *jetty,
+				  urma_jetty_attr_t *jetty_attr)
+{
+	struct udma_u_jetty *udma_jetty = to_udma_u_jetty(jetty);
+	urma_cmd_udrv_priv_t udata = {};
+	int ret;
+
+	if ((jetty_attr->mask & (uint32_t)JETTY_STATE) == 0) {
+		UDMA_LOG_ERR("modify jetty mask is error or not set, jetty_id = %u.\n",
+			     jetty->jetty_id.id);
+		return URMA_EINVAL;
+	}
+
+	ret = urma_cmd_modify_jetty(jetty, jetty_attr, &udata);
+	if (ret) {
+		UDMA_LOG_ERR("urma cmd modify jetty failed.\n");
+		return URMA_FAIL;
+	}
+
+	if (jetty_attr->state == URMA_JETTY_STATE_READY)
+		udma_reset_sw_u_jetty_queue(&udma_jetty->sq);
+
+	return URMA_SUCCESS;
+}
+
 urma_jetty_grp_t *udma_u_create_jetty_grp(urma_context_t *ctx,
 					  urma_jetty_grp_cfg_t *cfg)
 {
