@@ -172,3 +172,44 @@ urma_status_t udma_u_unregister_seg(urma_target_seg_t *target_seg)
 
 	return URMA_SUCCESS;
 }
+
+urma_target_seg_t *udma_u_import_seg(urma_context_t *ctx, urma_seg_t *seg,
+				     urma_token_t *token, uint64_t addr,
+				     urma_import_seg_flag_t flag)
+{
+	struct udma_u_segment *tseg;
+
+	if (seg->attr.bs.token_policy > URMA_TOKEN_PLAIN_TEXT) {
+		UDMA_LOG_ERR("invalid token policy = %d.\n",
+			     seg->attr.bs.token_policy);
+		return NULL;
+	}
+
+	tseg = (struct udma_u_segment *)calloc(1, sizeof(*tseg));
+	if (!tseg) {
+		UDMA_LOG_ERR("alloc target seg failed.\n");
+		return NULL;
+	}
+
+	tseg->urma_tseg.urma_ctx = ctx;
+	tseg->urma_tseg.seg = *seg;
+
+	if (seg->attr.bs.token_policy != URMA_TOKEN_NONE) {
+		tseg->token_value_valid = true;
+		tseg->token_value = *token;
+	}
+
+	tseg->tid = seg->token_id >> UDMA_TID_SHIFT;
+
+	return &tseg->urma_tseg;
+}
+
+urma_status_t udma_u_unimport_seg(urma_target_seg_t *target_seg)
+{
+	struct udma_u_segment *seg = to_udma_u_seg(target_seg);
+
+	seg->token_value.token = 0;
+	free(seg);
+
+	return URMA_SUCCESS;
+}
