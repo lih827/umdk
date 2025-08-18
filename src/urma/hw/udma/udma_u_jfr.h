@@ -13,10 +13,34 @@
 #include "udma_u_common.h"
 
 #define UDMA_JFR_IDX_QUE_ENTRY_SZ 4
+#define UDMA_JFR_DB_PROD_IDX_M GENMASK(15, 0)
 #define UDMA_U_MIN_JFR_DEPTH 64
+
+static inline bool udma_jfrwq_overflow(struct udma_u_jfr *jfr)
+{
+	return (jfr->rq.pi - jfr->rq.ci) >= jfr->wqe_cnt;
+}
+
+static inline void *get_jfr_wqe(struct udma_u_jfr *jfr, uint32_t n)
+{
+	return (char *)jfr->rq.qbuf + (n << jfr->wqe_shift);
+}
+
+static inline void *get_idx_buf(struct udma_u_jfr_idx_que *idx_que, uint32_t n)
+{
+	return (char *)idx_que->buf.buf + (n << idx_que->entry_shift);
+}
+
+static inline void set_data_of_sge(struct udma_wqe_sge *sge, const urma_sge_t *sg)
+{
+	sge->va = htole64(sg->addr);
+	sge->length = htole32(sg->len);
+}
 
 urma_jfr_t *udma_u_create_jfr(urma_context_t *ctx, urma_jfr_cfg_t *cfg);
 urma_status_t udma_u_delete_jfr(urma_jfr_t *jfr);
+urma_status_t udma_u_post_jfr_wr(urma_jfr_t *jfr, urma_jfr_wr_t *wr,
+				 urma_jfr_wr_t **bad_wr);
 urma_status_t udma_u_unimport_jfr(urma_target_jetty_t *target_jfr);
 int udma_u_verify_jfr_param(urma_context_t *ctx, urma_jfr_cfg_t *cfg);
 void udma_u_init_jfr_param(struct udma_u_jfr *jfr, urma_jfr_cfg_t *cfg);

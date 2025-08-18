@@ -96,6 +96,12 @@ struct udma_u_jetty_queue {
 	struct udma_u_hmap_node hmap_node;
 };
 
+struct udma_wqe_sge {
+	uint32_t length;
+	uint32_t token_id;
+	uint64_t va;
+};
+
 struct udma_u_jfr_idx_que {
 	struct udma_u_buf buf;
 	uint32_t entry_shift;
@@ -176,6 +182,9 @@ struct udma_u_target_jetty {
 #define check_types_match(expr1, expr2)		\
 	((typeof(expr1) *)0 != (typeof(expr2) *)0)
 
+#define GENMASK(h, l) \
+	(((~0UL) << (l)) & (~0UL >> (UDMA_BITS_PER_LONG - 1 - (h))))
+
 #ifndef container_of
 #define container_off(containing_type, member)                                 \
 	offsetof(containing_type, member)
@@ -185,6 +194,8 @@ struct udma_u_target_jetty {
 	   - container_off(containing_type, member))                           \
 	  + (uint8_t)check_types_match(*(member_ptr), ((containing_type *)0)->member))
 #endif
+
+#define udma_to_device_barrier() {asm volatile("dsb st" ::: "memory"); }
 
 static inline void udma_u_set_udata(urma_cmd_udrv_priv_t *udrv_data,
 				    void *in_addr, uint32_t in_len,

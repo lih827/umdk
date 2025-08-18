@@ -233,6 +233,97 @@ urma_status_t udma_u_unimport_jfr(urma_target_jetty_t *target_jfr)
 	return URMA_SUCCESS;
 }
 
+static void fill_wqe_idx(struct udma_u_jfr *jfr, uint32_t wqe_idx)
+{
+	uint32_t *idx_buf;
+	uint32_t head;
+
+	head = jfr->rq.pi & (jfr->wqe_cnt - 1);
+
+	idx_buf = (uint32_t *)get_idx_buf(&jfr->idx_que, head);
+	*idx_buf = htole32(wqe_idx);
+
+	jfr->rq.pi++;
+}
+
+static void fill_recv_sge_to_wqe(urma_jfr_wr_t *wr, void *wqe, struct udma_u_jfr *jfr)
+{
+	struct udma_wqe_sge *sge = (struct udma_wqe_sge *)wqe;
+	uint32_t i, cnt;
+
+	for (i = 0, cnt = 0; i < wr->src.num_sge; i++) {
+		if (!wr->src.sge[i].len)
+			continue;
+		set_data_of_sge(sge + cnt, wr->src.sge + i);
+		cnt++;
+	}
+
+	if (cnt < jfr->max_sge)
+		(void)memset(sge + cnt, 0, (jfr->max_sge - cnt) * UDMA_SGE_SIZE);
+}
+
+static urma_status_t post_recv_one(struct udma_u_jfr *jfr, urma_jfr_wr_t *wr)
+{
+	urma_status_t ret = URMA_SUCCESS;
+	uint32_t wqe_idx;
+	void *wqe;
+
+	if (wr->src.num_sge > jfr->max_sge) {
+		UDMA_LOG_ERR("failed to check sge, wr->num_sge = %u, max_sge = %u, jfrn = %u.\n",
+			     wr->src.num_sge, jfr->max_sge, jfr->base.jfr_id.id);
+		return URMA_EINVAL;
+	}
+
+	if (udma_jfrwq_overflow(jfr)) {
+		UDMA_LOG_ERR("failed to check jfrwq status, jfrwq is full, jfrn = %u.\n",
+			     jfr->base.jfr_id.id);
+		return URMA_ENOMEM;
+	}
+
+	if (udma_bitmap_use_idx(jfr->idx_que.bitmap, jfr->idx_que.bitmap_cnt,
+				jfr->wqe_cnt, &wqe_idx)) {
+		UDMA_LOG_ERR("failed to get jfr wqe idx.\n");
+		return URMA_ENOMEM;
+	}
+	wqe = get_jfr_wqe(jfr, wqe_idx);
+
+	fill_recv_sge_to_wqe(wr, wqe, jfr);
+	fill_wqe_idx(jfr, wqe_idx);
+
+	jfr->rq.wrid[wqe_idx] = wr->user_ctx;
+
+	return ret;
+}
+
+urma_status_t udma_u_post_jfr_wr(urma_jfr_t *jfr, urma_jfr_wr_t *wr,
+				 urma_jfr_wr_t **bad_wr)
+{
+	struct udma_u_jfr *udma_jfr = to_udma_u_jfr(jfr);
+	urma_status_t ret = URMA_SUCCESS;
+	uint32_t nreq;
+
+
+	(void)pthread_spin_lock(&udma_jfr->lock);
+
+	for (nreq = 0; wr; ++nreq, wr = wr->next) {
+		ret = post_recv_one(udma_jfr, wr);
+		if (ret) {
+			*bad_wr = wr;
+			break;
+		}
+	}
+
+	if (nreq) {
+		udma_to_device_barrier();
+		*udma_jfr->sw_db = udma_jfr->rq.pi & UDMA_JFR_DB_PROD_IDX_M;
+	}
+
+
+	(void)pthread_spin_unlock(&udma_jfr->lock);
+
+	return ret;
+}
+
 urma_target_jetty_t *udma_u_import_jfr_ex(urma_context_t *ctx,
 					  urma_rjfr_t *rjfr,
 					  urma_token_t *token_value,
