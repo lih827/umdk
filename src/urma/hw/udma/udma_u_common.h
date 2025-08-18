@@ -145,6 +145,13 @@ struct udma_u_jetty_grp {
 	pthread_spinlock_t lock;
 };
 
+struct udma_u_target_jetty {
+	urma_target_jetty_t urma_tjetty;
+	urma_eid_t le_eid;
+	uint32_t token_value;
+	bool token_value_valid;
+};
+
 #if INT_MAX >= 2147483647
 #define builtin_ilog32_nz(v) \
 	(((int)sizeof(uint32_t) * CHAR_BIT) - __builtin_clz(v))
@@ -250,6 +257,12 @@ static inline struct udma_u_jfc *to_udma_u_jfc(urma_jfc_t *jfc)
 	return container_of(jfc, struct udma_u_jfc, base);
 }
 
+static inline struct udma_u_target_jetty *
+to_udma_u_target_jetty(urma_target_jetty_t *target_jetty)
+{
+	return container_of(target_jetty, struct udma_u_target_jetty, urma_tjetty);
+}
+
 static inline uint32_t align_power2(uint32_t n)
 {
 	uint32_t res = 0;
@@ -297,6 +310,12 @@ static inline void udma_u_jetty_queue_remove(struct udma_u_context *udma_ctx,
 static inline uint32_t calc_mask(uint32_t capacity)
 {
 	return ((uint32_t)1 << ilog32(capacity)) - (uint32_t)1;
+}
+
+static inline void udma_u_swap_endian128(uint8_t *src, uint8_t *dst)
+{
+	*(uint64_t *)(dst + sizeof(uint64_t)) = __builtin_bswap64(*(uint64_t *)(src));
+	*(uint64_t *)(dst) = __builtin_bswap64(*(uint64_t *)(src + sizeof(uint64_t)));
 }
 
 #endif /* __UDMA_U_COMMON_H__ */

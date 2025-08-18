@@ -216,3 +216,53 @@ urma_status_t udma_u_delete_jfr(urma_jfr_t *jfr)
 
 	return URMA_SUCCESS;
 }
+
+urma_status_t udma_u_unimport_jfr(urma_target_jetty_t *target_jfr)
+{
+	struct udma_u_target_jetty *tjfr = to_udma_u_target_jetty(target_jfr);
+
+	if (urma_cmd_unimport_jfr(target_jfr)) {
+		UDMA_LOG_ERR("unimport jfr failed.\n");
+		return URMA_FAIL;
+	}
+
+	tjfr->token_value = 0;
+
+	free(tjfr);
+
+	return URMA_SUCCESS;
+}
+
+urma_target_jetty_t *udma_u_import_jfr_ex(urma_context_t *ctx,
+					  urma_rjfr_t *rjfr,
+					  urma_token_t *token_value,
+					  urma_active_tp_cfg_t *active_tp_cfg)
+{
+	struct udma_u_target_jetty *tjfr;
+	urma_tjfr_cfg_t cfg;
+
+	tjfr = (struct udma_u_target_jetty *)calloc(1, sizeof(*tjfr));
+	if (tjfr == NULL) {
+		UDMA_LOG_ERR("target jfr alloc in exp failed.\n");
+		return NULL;
+	}
+
+	cfg.token = token_value;
+	cfg.jfr_id = rjfr->jfr_id;
+	cfg.trans_mode = rjfr->trans_mode;
+	if (rjfr->flag.bs.token_policy != URMA_TOKEN_NONE) {
+		tjfr->token_value = token_value->token;
+		tjfr->token_value_valid = true;
+	}
+
+	if (urma_cmd_import_jfr_ex(ctx, &tjfr->urma_tjetty,
+				   &cfg, (urma_import_jfr_ex_cfg_t *)active_tp_cfg, NULL) != 0) {
+		UDMA_LOG_ERR("ubcore exp import jfr failed.\n");
+		free(tjfr);
+		return NULL;
+	}
+
+	udma_u_swap_endian128(rjfr->jfr_id.eid.raw, tjfr->le_eid.raw);
+
+	return &tjfr->urma_tjetty;
+}

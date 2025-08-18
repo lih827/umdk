@@ -17,6 +17,7 @@
 #include "udma_u_db.h"
 #include "udma_u_ops.h"
 
+/* udma_u_xx_ex interface thanks to rdma-core-master/providers/hns/hns_roce_u.c code. */
 static urma_ops_t g_udma_ops = {
 	.name = "UDMA_OPS",
 	.create_jfc = udma_u_create_jfc,
@@ -25,10 +26,12 @@ static urma_ops_t g_udma_ops = {
 	.delete_jfs = udma_u_delete_jfs,
 	.create_jfr = udma_u_create_jfr,
 	.delete_jfr = udma_u_delete_jfr,
+	.unimport_jfr = udma_u_unimport_jfr,
 	.create_jetty = udma_u_create_jetty,
 	.delete_jetty = udma_u_delete_jetty,
 	.create_jetty_grp = udma_u_create_jetty_grp,
 	.delete_jetty_grp = udma_u_delete_jetty_grp,
+	.import_jfr_ex = udma_u_import_jfr_ex,
 };
 
 static urma_status_t udma_u_init(urma_init_attr_t *conf)
