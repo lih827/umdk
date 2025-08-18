@@ -41,6 +41,7 @@ static urma_ops_t g_udma_ops = {
 	.query_jetty = udma_u_query_jetty,
 	.flush_jetty = udma_u_flush_jetty,
 	.delete_jetty = udma_u_delete_jetty,
+	.delete_jetty_batch = udma_u_delete_jetty_batch,
 	.unimport_jetty = udma_u_unimport_jetty,
 	.unbind_jetty = udma_u_unbind_jetty,
 	.create_jetty_grp = udma_u_create_jetty_grp,

@@ -238,6 +238,41 @@ urma_status_t udma_u_delete_jetty(urma_jetty_t *jetty)
 	return URMA_SUCCESS;
 }
 
+urma_status_t udma_u_delete_jetty_batch(urma_jetty_t **jetty, int jetty_cnt, urma_jetty_t **bad_jetty)
+{
+	int ret;
+	int i;
+
+	if (!jetty) {
+		UDMA_LOG_ERR("jetty array is null.\n");
+		return URMA_EINVAL;
+	}
+
+	if (!jetty_cnt) {
+		UDMA_LOG_ERR("jetty cnt is 0.\n");
+		return URMA_EINVAL;
+	}
+
+	for (i = 0; i < jetty_cnt; i++) {
+		ret = udma_u_delete_jetty_prepare(jetty[i]);
+		if (ret) {
+			*bad_jetty = jetty[0];
+			return URMA_FAIL;
+		}
+	}
+
+	ret = urma_cmd_delete_jetty_batch(jetty, jetty_cnt, bad_jetty);
+	if (ret) {
+		UDMA_LOG_ERR("batch jetty delete failed, ret = %d.\n", ret);
+		return URMA_FAIL;
+	}
+
+	for (i = 0; i < jetty_cnt; i++)
+		udma_u_free_jetty(jetty[i]);
+
+	return 0;
+}
+
 static int udma_check_jetty_grp_info(urma_tjetty_cfg_t *cfg)
 {
 	if (cfg->type == URMA_JETTY_GROUP) {
