@@ -316,8 +316,10 @@ fi
     %{_libdir}/urma/liburma_ubagg.so
     %{_libdir}/urma/liburma-udma.so
     %dir %{_includedir}/ub/umdk/urma
+    %dir %{_includedir}/ub/umdk/urma/udma
     %{_includedir}/ub/umdk/urma/urma_*.h
     %{_includedir}/ub/umdk/urma/uvs_api.h
+    %{_includedir}/ub/umdk/urma/udma/udma_u_ctl.h
 %if %{with gcov}
     %dir /var/lib/ub/umdk/urma/gcov/%{name}
     /var/lib/ub/umdk/urma/gcov/%{name}/

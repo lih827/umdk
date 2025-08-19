@@ -54,6 +54,9 @@ void udma_u_free_queue_buf(struct udma_u_jetty_queue *q)
 		q->wrid = NULL;
 	}
 
+	if (q->cstm)
+		return;
+
 	if (q->qbuf != NULL) {
 		udma_u_free_buf(q->qbuf, q->qbuf_size);
 		q->qbuf = NULL;

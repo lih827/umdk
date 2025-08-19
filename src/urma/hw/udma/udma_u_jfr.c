@@ -83,6 +83,7 @@ int exec_jfr_create_cmd(urma_context_t *ctx, struct udma_u_jfr *jfr,
 	cmd.idx_addr = (uintptr_t)jfr->idx_que.buf.buf;
 	cmd.idx_len = jfr->idx_que.buf.length;
 	cmd.jetty_addr = (uintptr_t)&jfr->rq;
+	cmd.non_pin = jfr->rq.cstm;
 
 	udma_u_set_udata(&udata, &cmd, sizeof(cmd), &resp, sizeof(resp));
 	ret = urma_cmd_create_jfr(ctx, &jfr->base, cfg, &udata);
@@ -120,7 +121,9 @@ static int udma_u_alloc_jfr_idx_que(struct udma_u_jfr *jfr)
 
 static void udma_u_free_idx_que(struct udma_u_jfr_idx_que *idx_que)
 {
-	udma_u_free_buf(idx_que->buf.buf, idx_que->buf.length);
+	if (!idx_que->cstm)
+		udma_u_free_buf(idx_que->buf.buf, idx_que->buf.length);
+
 	udma_bitmap_free(idx_que->bitmap);
 }
 
@@ -203,7 +206,9 @@ static void udma_u_free_jfr(urma_jfr_t *jfr)
 		udma_u_clean_jfc(jfr->jfr_cfg.jfc, jfr->jfr_id.id);
 
 	udma_u_free_sw_db(udma_ctx, (uint32_t *)udma_jfr->long_sleeptime, UDMA_JFR_PAYLOAD);
-	udma_u_free_sw_db(udma_ctx, udma_jfr->sw_db, UDMA_JFR_TYPE_DB);
+
+	if (!udma_jfr->swdb_cstm)
+		udma_u_free_sw_db(udma_ctx, udma_jfr->sw_db, UDMA_JFR_TYPE_DB);
 
 	udma_u_free_queue_buf(&udma_jfr->rq);
 

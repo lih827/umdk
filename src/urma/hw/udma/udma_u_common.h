@@ -21,6 +21,7 @@
 #include <sys/types.h>
 #include "urma_provider.h"
 #include "udma_u_abi.h"
+#include "udma_u_ctl.h"
 #include "udma_u_log.h"
 #include "udma_u_hmap.h"
 
@@ -94,6 +95,7 @@ struct udma_u_jetty_queue {
 	bool flush_flag;
 	uint32_t old_entry_idx;
 	bool lock_free;
+	bool cstm; /* sq ctrl flag */
 	struct udma_u_hmap_node hmap_node;
 };
 
@@ -108,6 +110,7 @@ struct udma_u_jfr_idx_que {
 	uint32_t entry_shift;
 	uint64_t *bitmap;
 	uint32_t bitmap_cnt;
+	bool cstm;
 };
 
 struct udma_u_jfr {
@@ -118,6 +121,7 @@ struct udma_u_jfr {
 	uint32_t wqe_shift;
 	uint32_t max_sge;
 	uint32_t cap_flags;
+	bool swdb_cstm;
 	uint32_t *sw_db;
 	pthread_spinlock_t lock;
 	bool lock_free;
@@ -395,5 +399,13 @@ static inline void udma_u_swap_endian128(uint8_t *src, uint8_t *dst)
 	*(uint64_t *)(dst + sizeof(uint64_t)) = __builtin_bswap64(*(uint64_t *)(src));
 	*(uint64_t *)(dst) = __builtin_bswap64(*(uint64_t *)(src + sizeof(uint64_t)));
 }
+
+typedef int (*udma_u_user_ctl_ops)(urma_context_t *ctx, urma_user_ctl_in_t *in,
+				   urma_user_ctl_out_t *out, enum udma_u_user_ctl_opcode op);
+
+bool udma_u_user_ctl_check_param(uint64_t addr, uint32_t in_len, uint32_t len,
+				 enum udma_u_user_ctl_opcode opcode);
+int udma_u_user_ctl(urma_context_t *ctx, urma_user_ctl_in_t *in,
+		    urma_user_ctl_out_t *out);
 
 #endif /* __UDMA_U_COMMON_H__ */

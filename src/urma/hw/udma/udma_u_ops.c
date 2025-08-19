@@ -16,6 +16,7 @@
 #include "udma_u_jetty.h"
 #include "udma_u_tid.h"
 #include "udma_u_segment.h"
+#include "udma_u_ctl.h"
 #include "udma_u_db.h"
 #include "udma_u_ctrlq_tp.h"
 #include "udma_u_ops.h"
@@ -63,6 +64,7 @@ static urma_ops_t g_udma_ops = {
 	.unimport_seg = udma_u_unimport_seg,
 	.get_async_event = udma_u_get_async_event,
 	.ack_async_event = udma_u_ack_async_event,
+	.user_ctl = udma_u_user_ctl,
 	.post_jfs_wr = udma_u_post_jfs_wr,
 	.post_jfr_wr = udma_u_post_jfr_wr,
 	.post_jetty_send_wr = udma_u_post_jetty_send_wr,

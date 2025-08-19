@@ -8,9 +8,17 @@ if("${UDMA_ST64B}" STREQUAL "enable")
     message(STATUS "SUPPORT ST64B!")
 endif()
 
+file(GLOB UDMA_API_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/udma_u_ctl.h"
+    )
+
+install(DIRECTORY DESTINATION /usr/include/ub/umdk/urma/udma)
+install(FILES ${UDMA_API_FILE} DESTINATION /usr/include/ub/umdk/urma/udma)
+
 target_include_directories(BETA_UDMA_SO PRIVATE ${CMAKE_SOURCE_DIR}/urma/lib/urma/core)
 target_include_directories(BETA_UDMA_SO PRIVATE ${CMAKE_SOURCE_DIR}/urma/lib/urma/core/include)
 target_include_directories(BETA_UDMA_SO PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/kernel_headers)
+target_include_directories(BETA_UDMA_SO PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 target_link_libraries(BETA_UDMA_SO PRIVATE urma)
 target_link_libraries(BETA_UDMA_SO PRIVATE urma_common)
