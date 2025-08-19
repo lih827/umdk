@@ -72,4 +72,7 @@ urma_status_t udma_u_get_async_event(urma_context_t *ctx,
 				     urma_async_event_t *event);
 void udma_u_ack_async_event(urma_async_event_t *event);
 void udma_u_clean_jfc(struct urma_jfc *jfc, uint32_t jetty_id);
+int udma_u_query_cqe_aux_info(urma_context_t *ctx, urma_user_ctl_in_t *in,
+			      urma_user_ctl_out_t *out,
+			      enum udma_u_user_ctl_opcode op);
 #endif /* __UDMA_U_JFC_H__ */

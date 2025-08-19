@@ -163,6 +163,7 @@ enum udma_u_user_ctl_opcode {
 	UDMA_U_USER_CTL_UPDATE_CI,
 	UDMA_U_USER_CTL_QUERY_UE_INFO,
 	UDMA_U_USER_CTL_QUERY_TP_SPORT,
+	UDMA_U_USER_CTL_QUERY_CQE_AUX_INFO,
 	UDMA_U_USER_CTL_MAX,
 };
 
@@ -170,6 +171,63 @@ struct udma_u_ue_info {
 	uint32_t ue_id;
 	uint32_t chip_id;
 	uint32_t die_id;
+};
+
+struct udma_u_cqe_info_in {
+	enum urma_cr_status status;
+	uint8_t s_r;
+};
+
+enum udma_u_cqe_aux_info_type {
+	TPP2TQEM_WR_CNT,
+	DEVICE_RAS_STATUS_2,
+	RXDMA_WR_PAYL_AXI_ERR,
+	RXDMA_HEAD_SPLIT_ERR_FLAG0,
+	RXDMA_HEAD_SPLIT_ERR_FLAG1,
+	RXDMA_HEAD_SPLIT_ERR_FLAG2,
+	RXDMA_HEAD_SPLIT_ERR_FLAG3,
+	TP_RCP_INNER_ALM_FOR_CQE,
+	TWP_AE_DFX_FOR_CQE,
+	PA_OUT_PKT_ERR_CNT,
+	TP_DAM_AXI_ALARM,
+	TP_DAM_VFT_BT_ALARM,
+	TP_EUM_AXI_ALARM,
+	TP_EUM_VFT_BT_ALARM,
+	TP_TPMM_AXI_ALARM,
+	TP_TPMM_VFT_BT_ALARM,
+	TP_TPGCM_AXI_ALARM,
+	TP_TPGCM_VFT_BT_ALARM,
+	TWP_ALM,
+	TP_RWP_INNER_ALM_FOR_CQE,
+	TWP_DFX21,
+	LQC_TA_RNR_TANACK_CNT,
+	FVT,
+	RQMT0,
+	RQMT1,
+	RQMT2,
+	RQMT3,
+	RQMT4,
+	RQMT5,
+	RQMT6,
+	RQMT7,
+	RQMT8,
+	RQMT9,
+	RQMT10,
+	RQMT11,
+	RQMT12,
+	RQMT13,
+	RQMT14,
+	RQMT15,
+	PROC_ERROR_ALM,
+	LQC_TA_TIMEOUT_TAACK_CNT,
+	TP_RRP_ERR_FLG_0_FOR_CQE,
+	MAX_CQE_AUX_INFO_TYPE_NUM
+};
+
+struct udma_u_cqe_aux_info_out {
+	enum udma_u_cqe_aux_info_type *aux_info_type;
+	uint32_t *aux_info_value;
+	uint32_t aux_info_num;
 };
 
 #endif /* __UDMA_U_CTL_H__ */

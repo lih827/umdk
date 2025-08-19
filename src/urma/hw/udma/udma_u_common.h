@@ -71,6 +71,7 @@ struct udma_u_context {
 	uint32_t		ue_id;
 	uint32_t		chip_id;
 	uint32_t		die_id;
+	bool			dump_aux_info;
 	uint32_t		jfr_sge;
 	struct node_tbl		src_idx_tbl[UDMA_U_TBL_NUM];
 };
