@@ -141,6 +141,15 @@ struct udma_u_jfs_info {
 	void *db_addr;
 };
 
+struct udma_u_tp_sport_in {
+	uint32_t tpn;
+};
+
+struct udma_u_tp_sport_out {
+	uint32_t data_udp_srcport;
+	uint32_t ack_udp_srcport;
+};
+
 enum udma_u_user_ctl_opcode {
 	UDMA_U_USER_CTL_CREATE_JFR_EX,
 	UDMA_U_USER_CTL_DELETE_JFR_EX,
@@ -153,6 +162,7 @@ enum udma_u_user_ctl_opcode {
 	UDMA_U_USER_CTL_POST_WR,
 	UDMA_U_USER_CTL_UPDATE_CI,
 	UDMA_U_USER_CTL_QUERY_UE_INFO,
+	UDMA_U_USER_CTL_QUERY_TP_SPORT,
 	UDMA_U_USER_CTL_MAX,
 };
 
