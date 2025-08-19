@@ -831,6 +831,133 @@ static int udma_u_jetty_ops_ex(urma_context_t *ctx, urma_user_ctl_in_t *in,
 	return 0;
 }
 
+static void udma_set_post_info(struct udma_u_jetty_queue *sq,
+			       struct udma_jfs_sqe_ctl *ctrl,
+			       struct udma_u_post_info *info)
+{
+	info->ctrl = (uint64_t *)ctrl;
+	info->dwqe_addr = (uint64_t *)sq->dwqe_addr;
+	info->pi = sq->pi;
+	info->db_addr = (void *)((char *)sq->db.addr + UDMA_DOORBELL_OFFSET);
+}
+
+static urma_status_t
+udma_u_post_sq_wr_ex(struct udma_u_context *udma_ctx, struct udma_u_jetty_queue *sq,
+		     struct udma_u_jfs_wr_ex **bad_wr, struct udma_u_wr_ex *wr_ex,
+		     struct udma_u_post_info *info)
+{
+	struct udma_u_jfs_wr_ex *cur_wr_ex;
+	struct udma_jfs_sqe_ctl *wqe_addr;
+	urma_status_t ret = URMA_SUCCESS;
+	bool dwqe_enable = false;
+	urma_jfs_wr_t *it;
+	urma_jfs_wr_t *wr;
+	int wr_cnt = 0;
+
+	wr = &(wr_ex->wr->wr);
+	if (!sq->lock_free)
+		(void)pthread_spin_lock(&sq->lock);
+
+	for (it = wr; it != NULL; it = (urma_jfs_wr_t *)it->next) {
+		cur_wr_ex = to_udma_u_jfs_wr_ex(it);
+
+		ret = udma_u_post_one_wr(udma_ctx, sq, it, &wqe_addr, &dwqe_enable);
+		if (ret) {
+			*bad_wr = cur_wr_ex;
+			goto out;
+		}
+		wr_cnt++;
+	}
+out:
+	if (wr_cnt != 0) {
+		udma_to_device_barrier();
+		wqe_addr->sqe_bb_idx = sq->pi;
+		if (wr_ex->db_en) {
+			if (wr_cnt == 1 && dwqe_enable && (sq->pi - sq->ci == 1))
+				mmio_memcpy_x64((uint64_t *)sq->dwqe_addr, (uint64_t *)wqe_addr);
+			else
+				udma_update_sq_db(sq);
+		} else {
+			udma_set_post_info(sq, wqe_addr, info);
+		}
+	}
+
+	if (!sq->lock_free)
+		(void)pthread_spin_unlock(&sq->lock);
+
+	return ret;
+}
+
+static urma_status_t udma_u_post_jetty_wr_ex(struct udma_u_wr_ex *wr_ex,
+					     struct udma_u_post_info *info)
+{
+	struct udma_u_jfs_wr_ex **bad_wr;
+	struct udma_u_context *udma_ctx;
+	struct udma_u_jetty *udma_jetty;
+	urma_jetty_t *urma_jetty;
+	urma_status_t ret;
+
+	urma_jetty = wr_ex->jetty;
+	bad_wr = wr_ex->bad_wr;
+	udma_ctx = to_udma_u_ctx(urma_jetty->urma_ctx);
+	udma_jetty = to_udma_u_jetty(urma_jetty);
+
+	ret = udma_u_post_sq_wr_ex(udma_ctx, &udma_jetty->sq, bad_wr,
+				wr_ex, info);
+	if (ret)
+		UDMA_LOG_ERR("Jetty post sq wr_ex failed, ret = %d, id = %u.\n",
+			     ret, udma_jetty->sq.idx);
+
+	return ret;
+}
+
+static urma_status_t udma_u_post_jfs_wr_ex(struct udma_u_wr_ex *wr_ex,
+					   struct udma_u_post_info *info)
+{
+	struct udma_u_context *udma_ctx;
+	struct udma_u_jfs *udma_jfs;
+	urma_status_t ret;
+	urma_jfs_t *jfs;
+
+	jfs = wr_ex->jfs;
+	udma_jfs = to_udma_u_jfs(jfs);
+	udma_ctx = to_udma_u_ctx(jfs->urma_ctx);
+
+	ret = udma_u_post_sq_wr_ex(udma_ctx, &udma_jfs->sq, wr_ex->bad_wr,
+				wr_ex, info);
+	if (ret)
+		UDMA_LOG_ERR("JFS post sq wr_ex failed, ret = %d, id = %u.\n",
+			     ret, udma_jfs->sq.idx);
+
+	return ret;
+}
+
+static int udma_u_post_wr_ex(urma_context_t *ctx, urma_user_ctl_in_t *in,
+			     urma_user_ctl_out_t *out, enum udma_u_user_ctl_opcode op)
+{
+	struct udma_u_post_info info;
+	struct udma_u_wr_ex wr_ex;
+
+	RTE_SET_USED(ctx);
+	if (!udma_u_user_ctl_check_param(in->addr, in->len, (uint32_t)sizeof(struct udma_u_wr_ex), op) ||
+	    !udma_u_user_ctl_check_param(out->addr, out->len, (uint32_t)sizeof(struct udma_u_post_info), op))
+		return EINVAL;
+
+	(void)memcpy(&wr_ex, (void *)in->addr, sizeof(struct udma_u_wr_ex));
+
+	if (!wr_ex.is_jetty) {
+		if (udma_u_post_jfs_wr_ex(&wr_ex, &info))
+			return EFAULT;
+	} else {
+		if (udma_u_post_jetty_wr_ex(&wr_ex, &info))
+			return EFAULT;
+	}
+
+	(void)memcpy((void *)out->addr, &info, sizeof(info));
+
+	return 0;
+}
+
 static udma_u_user_ctl_ops g_udma_u_user_ctl_ops[] = {
 	[UDMA_U_USER_CTL_CREATE_JFR_EX] = udma_u_jfr_ops_ex,
 	[UDMA_U_USER_CTL_DELETE_JFR_EX] = udma_u_jfr_ops_ex,
@@ -840,6 +967,7 @@ static udma_u_user_ctl_ops g_udma_u_user_ctl_ops[] = {
 	[UDMA_U_USER_CTL_DELETE_JFC_EX] = udma_u_jfc_ops_ex,
 	[UDMA_U_USER_CTL_CREATE_JETTY_EX] = udma_u_jetty_ops_ex,
 	[UDMA_U_USER_CTL_DELETE_JETTY_EX] = udma_u_jetty_ops_ex,
+	[UDMA_U_USER_CTL_POST_WR] = udma_u_post_wr_ex,
 };
 
 bool udma_u_user_ctl_check_param(uint64_t addr, uint32_t in_len, uint32_t len,

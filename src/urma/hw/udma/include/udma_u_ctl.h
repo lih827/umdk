@@ -97,6 +97,31 @@ struct udma_u_jfc_cfg_ex {
 	enum udma_u_jfc_type jfc_mode;
 };
 
+struct udma_u_jfs_wr_ex {
+	urma_jfs_wr_t wr;
+	bool reduce_en;
+	uint8_t reduce_opcode;
+	uint8_t reduce_data_type;
+};
+
+struct udma_u_wr_ex {
+	bool is_jetty;
+	bool db_en;
+	union {
+		urma_jfs_t *jfs;
+		urma_jetty_t *jetty;
+	};
+	struct udma_u_jfs_wr_ex *wr;
+	struct udma_u_jfs_wr_ex **bad_wr;
+};
+
+struct udma_u_post_info {
+	uint64_t *dwqe_addr;
+	void volatile *db_addr;
+	uint64_t *ctrl;
+	uint32_t pi;
+};
+
 struct udma_u_jetty_info {
 	urma_jetty_t *jetty;
 	void *dwqe_addr;
@@ -118,6 +143,7 @@ enum udma_u_user_ctl_opcode {
 	UDMA_U_USER_CTL_DELETE_JFC_EX,
 	UDMA_U_USER_CTL_CREATE_JETTY_EX,
 	UDMA_U_USER_CTL_DELETE_JETTY_EX,
+	UDMA_U_USER_CTL_POST_WR,
 	UDMA_U_USER_CTL_MAX,
 };
 

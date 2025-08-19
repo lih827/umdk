@@ -227,6 +227,7 @@ struct udma_u_target_jetty {
 #define udma_from_device_barrier() {asm volatile("dsb ld" ::: "memory"); }
 
 #define ARRAY_SIZE(ARRAY) (sizeof(ARRAY) / sizeof((ARRAY)[0]))
+#define RTE_SET_USED(x) (void)(x)
 
 static inline void udma_u_set_udata(urma_cmd_udrv_priv_t *udrv_data,
 				    void *in_addr, uint32_t in_len,
@@ -413,5 +414,10 @@ bool udma_u_user_ctl_check_param(uint64_t addr, uint32_t in_len, uint32_t len,
 				 enum udma_u_user_ctl_opcode opcode);
 int udma_u_user_ctl(urma_context_t *ctx, urma_user_ctl_in_t *in,
 		    urma_user_ctl_out_t *out);
+
+static inline struct udma_u_jfs_wr_ex *to_udma_u_jfs_wr_ex(urma_jfs_wr_t *urma_wr)
+{
+	return container_of(urma_wr, struct udma_u_jfs_wr_ex, wr);
+}
 
 #endif /* __UDMA_U_COMMON_H__ */
