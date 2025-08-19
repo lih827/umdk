@@ -998,6 +998,45 @@ static int udma_u_post_wr_ex(urma_context_t *ctx, urma_user_ctl_in_t *in,
 	return 0;
 }
 
+static int udma_u_update_ci_ex(urma_context_t *ctx, urma_user_ctl_in_t *in,
+			       urma_user_ctl_out_t *out, enum udma_u_user_ctl_opcode op)
+{
+	struct udma_u_update_ci update_info = {};
+	struct udma_u_jetty *udma_jetty;
+	struct udma_u_jetty_queue *sq;
+	struct udma_u_jfs *udma_jfs;
+	urma_jetty_t *jetty;
+	urma_jfs_t *jfs;
+
+	RTE_SET_USED(ctx);
+	RTE_SET_USED(out);
+	if (!udma_u_user_ctl_check_param(in->addr, in->len, (uint32_t)sizeof(struct udma_u_update_ci), op))
+		return EINVAL;
+
+	(void)memcpy(&update_info, (void *)in->addr, sizeof(struct udma_u_update_ci));
+
+	if (!update_info.is_jetty) {
+		jfs = update_info.jfs;
+		if (jfs == NULL)
+			return EINVAL;
+		udma_jfs = to_udma_u_jfs(jfs);
+		sq = &udma_jfs->sq;
+	} else {
+		jetty = update_info.jetty;
+		if (jetty == NULL)
+			return EINVAL;
+		udma_jetty = to_udma_u_jetty(jetty);
+		sq = &udma_jetty->sq;
+	}
+
+	sq->ci += (update_info.ci - sq->ci) & (sq->baseblk_cnt - 1);
+	sq->ci++;
+
+	sq->old_entry_idx = update_info.ci;
+
+	return 0;
+}
+
 static udma_u_user_ctl_ops g_udma_u_user_ctl_ops[] = {
 	[UDMA_U_USER_CTL_CREATE_JFR_EX] = udma_u_jfr_ops_ex,
 	[UDMA_U_USER_CTL_DELETE_JFR_EX] = udma_u_jfr_ops_ex,
@@ -1008,6 +1047,7 @@ static udma_u_user_ctl_ops g_udma_u_user_ctl_ops[] = {
 	[UDMA_U_USER_CTL_CREATE_JETTY_EX] = udma_u_jetty_ops_ex,
 	[UDMA_U_USER_CTL_DELETE_JETTY_EX] = udma_u_jetty_ops_ex,
 	[UDMA_U_USER_CTL_POST_WR] = udma_u_post_wr_ex,
+	[UDMA_U_USER_CTL_UPDATE_CI] = udma_u_update_ci_ex,
 };
 
 bool udma_u_user_ctl_check_param(uint64_t addr, uint32_t in_len, uint32_t len,

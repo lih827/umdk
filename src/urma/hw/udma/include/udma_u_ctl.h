@@ -122,6 +122,13 @@ struct udma_u_post_info {
 	uint32_t pi;
 };
 
+struct udma_u_update_ci {
+	uint16_t ci; /* entry_idx parsed from the CQE, only 16 bits. */
+	bool is_jetty;
+	urma_jfs_t *jfs;
+	urma_jetty_t *jetty;
+};
+
 struct udma_u_jetty_info {
 	urma_jetty_t *jetty;
 	void *dwqe_addr;
@@ -144,6 +151,7 @@ enum udma_u_user_ctl_opcode {
 	UDMA_U_USER_CTL_CREATE_JETTY_EX,
 	UDMA_U_USER_CTL_DELETE_JETTY_EX,
 	UDMA_U_USER_CTL_POST_WR,
+	UDMA_U_USER_CTL_UPDATE_CI,
 	UDMA_U_USER_CTL_MAX,
 };
 
