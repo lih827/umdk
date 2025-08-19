@@ -15,6 +15,7 @@
 #include "urma_private.h"
 #include "udma_u_buf.h"
 #include "udma_u_db.h"
+#include "udma_u_ctl.h"
 #include "udma_u_jfc.h"
 
 static int udma_u_check_jfc_cfg(urma_context_t *ctx, urma_jfc_cfg_t *cfg)
@@ -123,8 +124,10 @@ urma_status_t udma_u_delete_jfc(urma_jfc_t *jfc)
 		return URMA_FAIL;
 	}
 
-	udma_u_free_sw_db(udma_ctx, udma_jfc->sw_db, UDMA_JFC_TYPE_DB);
-	udma_u_free_queue_buf(&udma_jfc->cq);
+	if (!udma_jfc->mode) {
+		udma_u_free_sw_db(udma_ctx, udma_jfc->sw_db, UDMA_JFC_TYPE_DB);
+		udma_u_free_queue_buf(&udma_jfc->cq);
+	}
 
 	if (!udma_jfc->cq.lock_free)
 		(void)pthread_spin_destroy(&udma_jfc->cq.lock);
@@ -609,6 +612,9 @@ void udma_u_clean_jfc(struct urma_jfc *jfc, uint32_t jetty_id)
 	uint32_t cqe_size;
 	urma_cr_t cr;
 	uint32_t pi;
+
+	if (udma_u_jfc->mode != (uint32_t)UDMA_U_NORMAL_JFC_TYPE)
+		return;
 
 	cq = &udma_u_jfc->cq;
 	if (!cq->lock_free)

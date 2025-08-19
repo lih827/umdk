@@ -77,6 +77,17 @@ struct udma_u_jfs_cfg_ex {
 	uint32_t sqebb_num;
 };
 
+enum udma_u_jfc_type {
+	UDMA_U_NORMAL_JFC_TYPE,
+	UDMA_U_STARS_JFC_TYPE,
+	UDMA_U_CCU_JFC_TYPE,
+};
+
+struct udma_u_jfc_cfg_ex {
+	urma_jfc_cfg_t base_cfg;
+	enum udma_u_jfc_type jfc_mode;
+};
+
 struct udma_u_jfs_info {
 	urma_jfs_t *jfs;
 	void *dwqe_addr;
@@ -88,6 +99,8 @@ enum udma_u_user_ctl_opcode {
 	UDMA_U_USER_CTL_DELETE_JFR_EX,
 	UDMA_U_USER_CTL_CREATE_JFS_EX,
 	UDMA_U_USER_CTL_DELETE_JFS_EX,
+	UDMA_U_USER_CTL_CREATE_JFC_EX,
+	UDMA_U_USER_CTL_DELETE_JFC_EX,
 	UDMA_U_USER_CTL_MAX,
 };
 

@@ -152,6 +152,7 @@ struct udma_u_jfc {
 	struct udma_u_jetty_queue cq;
 	uint32_t *sw_db;
 	uint32_t arm_sn;
+	uint32_t mode;
 	uint32_t cq_shift;
 };
 

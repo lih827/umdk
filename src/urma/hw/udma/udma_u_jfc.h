@@ -18,10 +18,6 @@
 #define UDMA_U_JFC_DB_CI_IDX_M GENMASK(21, 0)
 #define UDMA_U_CQE_INV_TOKEN_ID GENMASK(19, 0)
 
-enum udma_u_jfc_type {
-	UDMA_U_NORMAL_JFC_TYPE,
-};
-
 struct udma_u_jfc_cqe {
 	/* DW0 */
 	uint32_t s_r : 1;

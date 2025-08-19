@@ -19,6 +19,7 @@
 #include "udma_u_db.h"
 #include "udma_u_jfs.h"
 #include "udma_u_jfr.h"
+#include "udma_u_jfc.h"
 #include "udma_u_ctl.h"
 
 static void udma_u_uninit_queue_buf(struct udma_u_jetty_queue *q)
@@ -411,6 +412,99 @@ err_create_sq:
 	return NULL;
 }
 
+static int udma_u_jfc_cmd_ex(urma_context_t *ctx, struct udma_u_jfc *jfc,
+			     struct udma_u_jfc_cfg_ex *cfg, uint32_t jfc_depth)
+{
+	struct udma_create_jfc_ucmd cmd = {};
+	urma_cmd_udrv_priv_t udata = {};
+
+	cmd.mode = (uint32_t)cfg->jfc_mode;
+	cmd.buf_len = jfc_depth;
+
+	udma_u_set_udata(&udata, &cmd, sizeof(cmd), NULL, 0);
+
+	return urma_cmd_create_jfc(ctx, &jfc->base, &cfg->base_cfg, &udata);
+}
+
+static int udma_u_verify_jfc_param_ex(urma_context_t *ctx, struct udma_u_jfc_cfg_ex *cfg_ex)
+{
+	urma_device_cap_t *cap;
+
+	if (ctx == NULL || cfg_ex == NULL) {
+		UDMA_LOG_ERR("invalid param, jfc ctx or cfg_ex is null.\n");
+		return EINVAL;
+	}
+
+	if (cfg_ex->jfc_mode < UDMA_U_STARS_JFC_TYPE ||
+	    cfg_ex->jfc_mode > UDMA_U_CCU_JFC_TYPE) {
+		UDMA_LOG_ERR("invalid param, STARS jfc mode = %u.\n",
+			     cfg_ex->jfc_mode);
+		return EINVAL;
+	}
+
+	cap = &ctx->dev->sysfs_dev->dev_attr.dev_cap;
+
+	if (!cfg_ex->base_cfg.depth || cfg_ex->base_cfg.depth > cap->max_jfc_depth) {
+		UDMA_LOG_ERR("invalid STARS jfc depth = %u, cap depth = %u.\n",
+			     cfg_ex->base_cfg.depth, cap->max_jfc_depth);
+		return EINVAL;
+	}
+
+	if (cfg_ex->base_cfg.ceqn >= cap->ceq_cnt) {
+		UDMA_LOG_ERR("invalid STARS jfc ceqn = %u, cap ceq cnt = %u.\n",
+			     cfg_ex->base_cfg.ceqn, cap->ceq_cnt);
+		return EINVAL;
+	}
+
+	return 0;
+}
+
+static urma_jfc_t *udma_u_create_jfc_ex(urma_context_t *ctx,
+					struct udma_u_jfc_cfg_ex *cfg_ex)
+{
+	struct udma_u_jfc *jfc;
+	uint32_t depth;
+	int ret;
+
+	if (udma_u_verify_jfc_param_ex(ctx, cfg_ex))
+		return NULL;
+
+	jfc = (struct udma_u_jfc *)calloc(1, sizeof(*jfc));
+	if (!jfc) {
+		UDMA_LOG_ERR("failed to alloc user udma STARS jfc memory.\n");
+		return NULL;
+	}
+
+	jfc->cq.lock_free = cfg_ex->base_cfg.flag.bs.lock_free;
+	jfc->mode = cfg_ex->jfc_mode;
+	if (!jfc->cq.lock_free &&
+	    pthread_spin_init(&jfc->cq.lock, PTHREAD_PROCESS_PRIVATE)) {
+		UDMA_LOG_ERR("failed to init user udma STARS jfc spinlock.\n");
+		goto err_init_lock;
+	}
+
+	depth = cfg_ex->base_cfg.depth < UDMA_U_MIN_JFC_DEPTH ?
+		UDMA_U_MIN_JFC_DEPTH : roundup_pow_of_two(cfg_ex->base_cfg.depth);
+
+	ret = udma_u_jfc_cmd_ex(ctx, jfc, cfg_ex, depth);
+	if (ret) {
+		UDMA_LOG_ERR("udma STARS jfc failed to create urma cmd, ret = %d.\n", ret);
+		goto err_create_jfc;
+	}
+
+	jfc->arm_sn = 1;
+
+	return &jfc->base;
+
+err_create_jfc:
+	if (!jfc->cq.lock_free)
+		pthread_spin_destroy(&jfc->cq.lock);
+err_init_lock:
+	free(jfc);
+
+	return NULL;
+}
+
 static int udma_u_jfr_ops_ex(urma_context_t *ctx, urma_user_ctl_in_t *in,
 			     urma_user_ctl_out_t *out, enum udma_u_user_ctl_opcode op)
 {
@@ -493,11 +587,48 @@ static int udma_u_jfs_ops_ex(urma_context_t *ctx, urma_user_ctl_in_t *in,
 	return 0;
 }
 
+static int udma_u_jfc_ops_ex(urma_context_t *ctx, urma_user_ctl_in_t *in,
+			     urma_user_ctl_out_t *out, enum udma_u_user_ctl_opcode op)
+{
+	struct udma_u_jfc_cfg_ex cfg_ex;
+	urma_jfc_t *jfc = NULL;
+
+	if (op == UDMA_U_USER_CTL_CREATE_JFC_EX) {
+		if (!udma_u_user_ctl_check_param(in->addr, in->len, (uint32_t)sizeof(struct udma_u_jfc_cfg_ex), op) ||
+		    !udma_u_user_ctl_check_param(out->addr, out->len, (uint32_t)sizeof(urma_jfc_t *), op))
+			return EINVAL;
+
+		(void)memcpy(&cfg_ex, (void *)(uintptr_t)in->addr, sizeof(struct udma_u_jfc_cfg_ex));
+		jfc = udma_u_create_jfc_ex(ctx, &cfg_ex);
+		if (jfc == NULL)
+			return EFAULT;
+
+		memcpy((void *)out->addr, &jfc, sizeof(urma_jfc_t *));
+		atomic_fetch_add(&ctx->ref.atomic_cnt, 1);
+	} else {
+		if (!udma_u_user_ctl_check_param(in->addr, in->len, (uint32_t)sizeof(urma_jfc_t *), op))
+			return EINVAL;
+
+		(void)memcpy(&jfc, (void *)(uintptr_t)in->addr, sizeof(urma_jfc_t *));
+		if (jfc == NULL)
+			return EINVAL;
+
+		if (udma_u_delete_jfc(jfc))
+			return EFAULT;
+
+		atomic_fetch_sub(&ctx->ref.atomic_cnt, 1);
+	}
+
+	return 0;
+}
+
 static udma_u_user_ctl_ops g_udma_u_user_ctl_ops[] = {
 	[UDMA_U_USER_CTL_CREATE_JFR_EX] = udma_u_jfr_ops_ex,
 	[UDMA_U_USER_CTL_DELETE_JFR_EX] = udma_u_jfr_ops_ex,
 	[UDMA_U_USER_CTL_CREATE_JFS_EX] = udma_u_jfs_ops_ex,
 	[UDMA_U_USER_CTL_DELETE_JFS_EX] = udma_u_jfs_ops_ex,
+	[UDMA_U_USER_CTL_CREATE_JFC_EX] = udma_u_jfc_ops_ex,
+	[UDMA_U_USER_CTL_DELETE_JFC_EX] = udma_u_jfc_ops_ex,
 };
 
 bool udma_u_user_ctl_check_param(uint64_t addr, uint32_t in_len, uint32_t len,
