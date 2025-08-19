@@ -20,6 +20,7 @@
 #include "udma_u_jfs.h"
 #include "udma_u_jfr.h"
 #include "udma_u_jfc.h"
+#include "udma_u_jetty.h"
 #include "udma_u_ctl.h"
 
 static void udma_u_uninit_queue_buf(struct udma_u_jetty_queue *q)
@@ -412,6 +413,168 @@ err_create_sq:
 	return NULL;
 }
 
+static void udma_u_init_jfs_cfg_ex(struct udma_u_jetty_cfg_ex *cfg_ex, struct udma_u_jfs_cfg_ex *jfs_cfg)
+{
+	jfs_cfg->base_cfg = cfg_ex->base_cfg.jfs_cfg;
+	jfs_cfg->cstm_cfg = cfg_ex->jfs_cstm;
+	jfs_cfg->sqebb_num = cfg_ex->sqebb_num;
+	jfs_cfg->jetty_type = cfg_ex->jetty_type;
+}
+
+static int udma_u_create_jetty_check_cap(urma_context_t *ctx, urma_jetty_cfg_t *jetty_cfg)
+{
+	urma_device_cap_t *cap = &ctx->dev->sysfs_dev->dev_attr.dev_cap;
+	urma_jfr_cfg_t *jfr_cfg = &jetty_cfg->shared.jfr->jfr_cfg;
+	urma_jfs_cfg_t *jfs_cfg = &jetty_cfg->jfs_cfg;
+
+	if ((jfs_cfg->max_inline_data != 0 && jfs_cfg->max_inline_data > cap->max_jfs_inline_len) ||
+	    (jfr_cfg->depth == 0 || jfr_cfg->depth > cap->max_jfr_depth) ||
+	    (jfs_cfg->max_sge > cap->max_jfs_sge || jfs_cfg->max_rsge > cap->max_jfs_rsge || \
+	     jfr_cfg->max_sge > cap->max_jfr_sge)) {
+		UDMA_LOG_ERR("jetty cfg out of range, jfs_depth:%u, max_jfs_depth: %u, " \
+			"inline_data:%u, max_jfs_inline_len: %u, jfr_depth:%u, max_jfr_depth: %u, " \
+			"jfs_sge:%hhu, max_jfs_sge:%u, jfs_rsge:%hhu, max_jfs_rsge:%u, jfr_sge:%hhu, max_jfr_sge:%u.\n",
+			jfs_cfg->depth, cap->max_jfs_depth, jfs_cfg->max_inline_data, cap->max_jfs_inline_len,
+			jfr_cfg->depth, cap->max_jfr_depth, jfs_cfg->max_sge, cap->max_jfs_sge,
+			jfs_cfg->max_rsge, cap->max_jfs_rsge, jfr_cfg->max_sge, cap->max_jfr_sge);
+		return EINVAL;
+	}
+
+	return 0;
+}
+
+static int udma_u_check_jetty_param_ex(urma_context_t *ctx,
+				       struct udma_u_jetty_cfg_ex *cfg_ex)
+{
+	urma_jetty_cfg_t *jetty_cfg = &cfg_ex->base_cfg;
+	urma_transport_mode_t trans_mode;
+
+	if (jetty_cfg->jfs_cfg.jfc == NULL) {
+		UDMA_LOG_ERR("jfc in jfs_cfg is null.\n");
+		return EINVAL;
+	}
+
+	if (jetty_cfg->flag.bs.share_jfr == URMA_NO_SHARE_JFR ||
+	    jetty_cfg->shared.jfr == NULL ||
+	    jetty_cfg->shared.jfr->jfr_cfg.jfc == NULL) {
+		UDMA_LOG_ERR("only support share jfr.\n");
+		return EINVAL;
+	}
+
+	trans_mode = jetty_cfg->jfs_cfg.trans_mode;
+	if (trans_mode != URMA_TM_RM && trans_mode != URMA_TM_RC &&
+	    trans_mode != URMA_TM_UM) {
+		UDMA_LOG_ERR("invalid jetty parameter, jetty trans_mode = %d.\n",
+			     (int)trans_mode);
+		return EINVAL;
+	}
+
+	if (udma_u_create_jetty_check_cap(ctx, jetty_cfg))
+		return EINVAL;
+
+	return 0;
+}
+
+static int udma_u_check_jetty_cfg_ex(struct udma_u_jetty_cfg_ex *cfg_ex)
+{
+	if (cfg_ex->jetty_type > UDMA_U_NORMAL_JETTY_TYPE) {
+		UDMA_LOG_ERR("invalid jetty type %u.\n", cfg_ex->jetty_type);
+		return EINVAL;
+	}
+
+	return 0;
+}
+
+static int udma_u_verify_jetty_param_ex(urma_context_t *ctx,
+					struct udma_u_jetty_cfg_ex *cfg_ex)
+{
+	if (ctx == NULL || cfg_ex == NULL) {
+		UDMA_LOG_ERR("jetty ctx or cfg_ex is null.\n");
+		return EINVAL;
+	}
+
+	if (udma_u_check_jetty_cfg_ex(cfg_ex))
+		return EINVAL;
+
+	if (udma_u_check_jetty_param_ex(ctx, cfg_ex))
+		return EINVAL;
+
+	if (udma_u_verify_jfs_cstm_cfg(&cfg_ex->jfs_cstm)) {
+		UDMA_LOG_ERR("jetty jfs_cstm is invalid.\n");
+		return EINVAL;
+	}
+
+	return 0;
+}
+
+static void udma_u_init_jetty_param_ex(struct udma_u_jetty *jetty,
+				       struct udma_u_jetty_cfg_ex *cfg_ex)
+{
+	jetty->jfr = to_udma_u_jfr(cfg_ex->base_cfg.shared.jfr);
+	jetty->sq.cstm = cfg_ex->jfs_cstm.flag.bs.sq_cstm != 0 ? true : false;
+	jetty->jetty_type = (uint32_t)cfg_ex->jetty_type;
+	jetty->pi_type = cfg_ex->pi_type;
+	cfg_ex->base_cfg.jfs_cfg.depth = 1;
+}
+
+static urma_jetty_t *udma_u_create_jetty_ex(urma_context_t *ctx, struct udma_u_jetty_cfg_ex *cfg_ex)
+{
+	struct udma_u_context *udma_ctx = to_udma_u_ctx(ctx);
+	struct udma_u_jfs_cfg_ex jfs_cfg = {};
+	struct udma_u_jetty *jetty;
+	int ret;
+
+	if (udma_u_verify_jetty_param_ex(ctx, cfg_ex))
+		return NULL;
+
+	jetty = (struct udma_u_jetty *)calloc(1, sizeof(struct udma_u_jetty));
+	if (jetty == NULL) {
+		UDMA_LOG_ERR("jetty memory allocation failed.\n");
+		return NULL;
+	}
+
+	if (init_jetty_trans_mode(jetty, &cfg_ex->base_cfg))
+		goto err_init_jetty_trans_mode;
+
+	udma_u_init_jfs_cfg_ex(cfg_ex, &jfs_cfg);
+	ret = udma_u_create_sq_ex(&jetty->sq, &jfs_cfg);
+	if (ret != 0) {
+		UDMA_LOG_ERR("jetty create sq failed, ret = %d.\n", ret);
+		goto err_init_jetty_trans_mode;
+	}
+
+	udma_u_init_jetty_param_ex(jetty, cfg_ex);
+
+	if (exec_jetty_create_cmd(ctx, jetty, &cfg_ex->base_cfg)) {
+		UDMA_LOG_ERR("failed to create jetty.\n");
+		goto err_jetty_create_cmd;
+	}
+
+	jetty->sq.db.id = jetty->base.jetty_id.id;
+	jetty->sq.db.type = UDMA_MMAP_JETTY_DSQE;
+	if (udma_u_alloc_db(ctx, &jetty->sq.db)) {
+		UDMA_LOG_ERR("failed to alloc db.\n");
+		goto err_alloc_db;
+	}
+
+	jetty->sq.dwqe_addr = (void *)jetty->sq.db.addr;
+	jetty->sq.idx = jetty->base.jetty_id.id;
+	if (udma_u_jetty_queue_insert(udma_ctx, &jetty->sq, UDMA_U_JETTY_TBL))
+		goto err_insert_node;
+
+	return &jetty->base;
+err_insert_node:
+	udma_u_free_db(ctx, &jetty->sq.db);
+err_alloc_db:
+	urma_cmd_delete_jetty(&jetty->base);
+err_jetty_create_cmd:
+	udma_u_delete_sq(&jetty->sq);
+err_init_jetty_trans_mode:
+	free(jetty);
+
+	return NULL;
+}
+
 static int udma_u_jfc_cmd_ex(urma_context_t *ctx, struct udma_u_jfc *jfc,
 			     struct udma_u_jfc_cfg_ex *cfg, uint32_t jfc_depth)
 {
@@ -622,6 +785,52 @@ static int udma_u_jfc_ops_ex(urma_context_t *ctx, urma_user_ctl_in_t *in,
 	return 0;
 }
 
+static void udma_fill_create_jetty_ex_out(urma_user_ctl_out_t *out, urma_jetty_t *jetty)
+{
+	struct udma_u_jetty *udma_jetty = to_udma_u_jetty(jetty);
+	struct udma_u_jetty_info jetty_info;
+
+	jetty_info.jetty = jetty;
+	jetty_info.dwqe_addr = udma_jetty->sq.dwqe_addr;
+	jetty_info.db_addr = jetty_info.dwqe_addr + UDMA_DOORBELL_OFFSET;
+	(void)memcpy((void *)out->addr, &jetty_info, sizeof(struct udma_u_jetty_info));
+}
+
+static int udma_u_jetty_ops_ex(urma_context_t *ctx, urma_user_ctl_in_t *in,
+			       urma_user_ctl_out_t *out, enum udma_u_user_ctl_opcode op)
+{
+	struct udma_u_jetty_cfg_ex cfg_ex;
+	urma_jetty_t *jetty = NULL;
+
+	if (op == UDMA_U_USER_CTL_CREATE_JETTY_EX) {
+		if (!udma_u_user_ctl_check_param(in->addr, in->len, (uint32_t)sizeof(struct udma_u_jetty_cfg_ex), op) ||
+		    !udma_u_user_ctl_check_param(out->addr, out->len, (uint32_t)sizeof(struct udma_u_jetty_info), op))
+			return EINVAL;
+
+		(void)memcpy(&cfg_ex, (void *)in->addr, sizeof(struct udma_u_jetty_cfg_ex));
+		jetty = udma_u_create_jetty_ex(ctx, &cfg_ex);
+		if (jetty == NULL)
+			return EFAULT;
+
+		udma_fill_create_jetty_ex_out(out, jetty);
+		atomic_fetch_add(&ctx->ref.atomic_cnt, 1);
+	} else {
+		if (!udma_u_user_ctl_check_param(in->addr, in->len, (uint32_t)sizeof(urma_jetty_t *), op))
+			return EINVAL;
+
+		(void)memcpy(&jetty, (void *)in->addr, sizeof(urma_jetty_t *));
+		if (jetty == NULL)
+			return EINVAL;
+
+		if (udma_u_delete_jetty(jetty))
+			return EFAULT;
+
+		atomic_fetch_sub(&ctx->ref.atomic_cnt, 1);
+	}
+
+	return 0;
+}
+
 static udma_u_user_ctl_ops g_udma_u_user_ctl_ops[] = {
 	[UDMA_U_USER_CTL_CREATE_JFR_EX] = udma_u_jfr_ops_ex,
 	[UDMA_U_USER_CTL_DELETE_JFR_EX] = udma_u_jfr_ops_ex,
@@ -629,6 +838,8 @@ static udma_u_user_ctl_ops g_udma_u_user_ctl_ops[] = {
 	[UDMA_U_USER_CTL_DELETE_JFS_EX] = udma_u_jfs_ops_ex,
 	[UDMA_U_USER_CTL_CREATE_JFC_EX] = udma_u_jfc_ops_ex,
 	[UDMA_U_USER_CTL_DELETE_JFC_EX] = udma_u_jfc_ops_ex,
+	[UDMA_U_USER_CTL_CREATE_JETTY_EX] = udma_u_jetty_ops_ex,
+	[UDMA_U_USER_CTL_DELETE_JETTY_EX] = udma_u_jetty_ops_ex,
 };
 
 bool udma_u_user_ctl_check_param(uint64_t addr, uint32_t in_len, uint32_t len,

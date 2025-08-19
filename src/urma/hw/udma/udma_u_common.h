@@ -145,6 +145,7 @@ struct udma_u_jetty {
 	struct udma_u_jfr *jfr;
 	struct udma_u_jetty_grp *jetty_grp;
 	uint32_t jetty_type;
+	bool pi_type;
 };
 
 struct udma_u_jfc {

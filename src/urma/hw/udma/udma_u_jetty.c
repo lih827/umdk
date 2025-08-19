@@ -36,7 +36,9 @@ int exec_jetty_create_cmd(urma_context_t *ctx, struct udma_u_jetty *jetty,
 	cmd.db_addr = (uintptr_t)jetty->sq.db.addr;
 	cmd.jetty_addr = (uintptr_t)&jetty->sq;
 	cmd.sqe_bb_cnt = jetty->sq.sqe_bb_cnt;
+	cmd.pi_type = jetty->pi_type;
 	cmd.jetty_type = jetty->jetty_type;
+	cmd.non_pin = jetty->sq.cstm;
 
 	udma_u_set_udata(&udata, &cmd, (uint32_t)sizeof(cmd), NULL, 0);
 	ret = urma_cmd_create_jetty(ctx, &jetty->base, cfg, &udata);
