@@ -152,7 +152,14 @@ enum udma_u_user_ctl_opcode {
 	UDMA_U_USER_CTL_DELETE_JETTY_EX,
 	UDMA_U_USER_CTL_POST_WR,
 	UDMA_U_USER_CTL_UPDATE_CI,
+	UDMA_U_USER_CTL_QUERY_UE_INFO,
 	UDMA_U_USER_CTL_MAX,
+};
+
+struct udma_u_ue_info {
+	uint32_t ue_id;
+	uint32_t chip_id;
+	uint32_t die_id;
 };
 
 #endif /* __UDMA_U_CTL_H__ */

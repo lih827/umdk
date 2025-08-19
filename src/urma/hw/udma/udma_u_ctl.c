@@ -1037,6 +1037,26 @@ static int udma_u_update_ci_ex(urma_context_t *ctx, urma_user_ctl_in_t *in,
 	return 0;
 }
 
+static int udma_u_query_ue_info(urma_context_t *ctx, urma_user_ctl_in_t *in,
+				urma_user_ctl_out_t *out,
+				enum udma_u_user_ctl_opcode op)
+{
+	struct udma_u_context *udma_ctx = to_udma_u_ctx(ctx);
+	struct udma_u_ue_info info = {};
+
+	RTE_SET_USED(in);
+	if (!udma_u_user_ctl_check_param(out->addr, out->len, (uint32_t)sizeof(struct udma_u_ue_info), op))
+		return EINVAL;
+
+	info.ue_id = udma_ctx->ue_id;
+	info.chip_id = udma_ctx->chip_id;
+	info.die_id = udma_ctx->die_id;
+
+	(void)memcpy((void *)out->addr, &info, sizeof(struct udma_u_ue_info));
+
+	return 0;
+}
+
 static udma_u_user_ctl_ops g_udma_u_user_ctl_ops[] = {
 	[UDMA_U_USER_CTL_CREATE_JFR_EX] = udma_u_jfr_ops_ex,
 	[UDMA_U_USER_CTL_DELETE_JFR_EX] = udma_u_jfr_ops_ex,
@@ -1048,6 +1068,7 @@ static udma_u_user_ctl_ops g_udma_u_user_ctl_ops[] = {
 	[UDMA_U_USER_CTL_DELETE_JETTY_EX] = udma_u_jetty_ops_ex,
 	[UDMA_U_USER_CTL_POST_WR] = udma_u_post_wr_ex,
 	[UDMA_U_USER_CTL_UPDATE_CI] = udma_u_update_ci_ex,
+	[UDMA_U_USER_CTL_QUERY_UE_INFO] = udma_u_query_ue_info,
 };
 
 bool udma_u_user_ctl_check_param(uint64_t addr, uint32_t in_len, uint32_t len,
