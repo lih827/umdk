@@ -4,9 +4,9 @@ CAM is short for Communication Acceleration for Matrix on Ascend NPU. CAM provid
 
 # Roadmap
 
--[] EP Communication: Dispatch & Combine
--[] FusedDeepMoE: Dispatch + GEMM + Combine
--[] KVCache Transfer
--[] RL Weights Transfer
--[] AFD Communication
+- [x] EP Communication: Dispatch & Combine
+- [x] FusedDeepMoE: Dispatch + GEMM + Combine
+- [] KVCache Transfer
+- [] RL Weights Transfer
+- [] AFD Communication
 
