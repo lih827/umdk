@@ -5,19 +5,19 @@ CAM is short for Communication Acceleration for Matrix on Ascend NPU. CAM provid
 # Roadmap
 
 - [x] EP Communication: Dispatch & Combine
-  -[x] Support A2
-  -[x] Support A3
-  -[x] Support low latency mode
-  -[ ] Support high throughput mode
-  -[ ] Support BF16/FP16 input
+  - [x] Support A2
+  - [x] Support A3
+  - [x] Support low latency mode
+  - [ ] Support high throughput mode
+  - [ ] Support BF16/FP16 input
 - [x] FusedDeepMoE: Dispatch + GEMM + Combine
-  -[ ] Support A2
-  -[x] Support A3
-  -[x] Support low latency mode
-  -[ ] Support high throughput mode
-  -[ ] Support BF16/FP16 input
-  -[x] Support W8A8 for GEMM
-  -[ ] Support W4A8 for GEMM
+  - [ ] Support A2
+  - [x] Support A3
+  - [x] Support low latency mode
+  - [ ] Support high throughput mode
+  - [ ] Support BF16/FP16 input
+  - [x] Support W8A8 for GEMM
+  - [ ] Support W4A8 for GEMM
 - [ ] KVCache Transfer
 - [ ] RL Weights Transfer
 - [ ] AFD Communication
