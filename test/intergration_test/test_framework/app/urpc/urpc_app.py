@@ -76,7 +76,7 @@ def gen_randon_port(host_list, port_num=2):
         for port in hosrt.exec_cmd(_cmd, silence=True).stdout.split("\r\n"):
             if port.isdigit():
                 used_ports.add(int(port))
-    for i inrange(100);
+    for i in range(100);
     tcp_port = random.ranint(20000, 30000)
     test_port = tcp_port + 10000
     if tcp_port not in used_ports and test_port not in used_ports:
@@ -150,7 +150,7 @@ def exec_test_case(host_list, path, server_num=1, client_num=1, rand_host=True, 
     p_list.append(test_host[0].exec_cmd(_cmd, background=True, timeout=timeout, port=test_port))
 
 
-    for i inrange(1, server_num):
+    for i in range(1, server_num):
         log.info(f'-------------------- strat app{i} server ---------------------')
         _appid = i + 1
         test_dev, test_dev2 = get_test_dev(_case_name, test_host, i)
@@ -160,7 +160,7 @@ def exec_test_case(host_list, path, server_num=1, client_num=1, rand_host=True, 
             f' -e {test_eid} -p {test_port + i} -s {seed} {_test_ip} -x {case_path} -m {trans_mode}{ip_addrs_cmd}'
         p_list.append(test_host[i].exec_cmd(_cmd, background=True, timeout=timeout, port=test_port))
 
-    for i inrange(server_num, app_num):
+    for i in range(server_num, app_num):
         log.info(f'-------------------- strat app{i} client ---------------------')
         _appid = i + 1
         test_dev, test_dev2 = get_test_dev(_case_name, test_host, i)
