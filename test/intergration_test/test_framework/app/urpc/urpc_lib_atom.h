@@ -258,7 +258,7 @@ typedef struct {
 
 typedef enum test_msg_type {
     WITHOUT_DMA,
-    WITHDMA,
+    WITH_DMA,
 } test_msg_type_t;
 
 typedef struct custom_head {
