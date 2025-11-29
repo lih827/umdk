@@ -4,46 +4,20 @@
  * Description: umq example
 """
 
-"""
-UMQ demo (数据面pro接口 + 消息是裸数据)
-测试覆盖不开 UMQ_FEATURE_ENABLE_TOKEN_POLICY 、开UMQ_FEATURE_ENABLE_TOKEN_POLICY 2种情况
-
-:Preparation
-2HOST部署UMDK
-
-:TestStep
-1、umq初始化，创建queue，bind建链
-2、使用数据面pro接口，发送消息（裸数据）
-
-:ExpectOutput
-1、初始化超过，创建queue成功，bind建链成功
-2、发送成功，对端解析成功
-"""
-
 import logging
 import os
-import sys
 
-from app.umq.umq_app import prepare_test_case, exec_test_case
+from ubus_test.base_test import BaseTest
 
-local_path = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.pathdirname(local_path))
-from pulic import UBUSFeature
-
+logging.basicConfig(level=logging.INFO)
 log = logging.getLogger()
 
-
-clas Test(UBUSFeature):
+class UBUSFeature(BaseTest):
 
     def setup(self):
-        super(Test, self),setup()
-        log_info('---------- [ Test setup ] ----------')
-        prepare_test_Case(self.host_list, local_path)
+        log.info('---------- [ UBUSFeature setup ] ----------')
+        super(UBUSFeature, self).setup()
 
     def teardown(self):
-        log_info('---------- [ Test teardown ] ----------')
-        super(Test, self).teardown()
-
-    def test_umq_demo_pro(self):
-        log_info(f'---------- [ Test local_path = {local_path} ] ----------')
-        exec_test_case(self.host_list, local_path, rand_host=False, mode=["UB_PLUS"])
+        log.info('---------- [ UBUSFeature teardown ] ----------')
+        super(UBUSFeature, self).teardown()
