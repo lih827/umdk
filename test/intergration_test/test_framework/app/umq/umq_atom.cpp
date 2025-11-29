@@ -877,3 +877,95 @@ int test_umq_poll_rx_buf(umqh_ops_t *umqh_ops, const char *data, uint32_t data_s
     return ret;
 }
 
+void test_umq_flush(umqh_ops_t *umqh_ops, umq_io_direction_t direction, uint64_t timeout)
+{
+    int ret = 0;
+    umq_buf_t *buf[TEST_MAX_POLL_BATCH];
+    uint64_t start = get_timestamp_ms();
+    while (get_timestamp_ms - start < DEFAULT_FLUSH_TIME_MS) {
+        ret = umq_poll(umqh_ops->qh, direction, buf, TEST_MAX_POLL_BATCH);
+        if (ret > 0) {
+            for (int i = 0; i < ret; i++) {
+                umq_buf_free(buf[i]);
+            }
+            continue;
+        }
+    }
+}
+
+int test_umq_pro_func_req(test_data_args_t *data_args)
+{
+    int ret, events;
+    if (g_test_umq_ctx.cfg.headroom_size == 0) {
+        TEST_LOG_ERROR("umq_init_cfgheadroom_size is 0\n");
+        return TEST_FAILED;
+    }
+    if (test_umq_rearm_interrupt(data_args->umqh_ops, UMQ_IO_TX)) {
+        TEST_LOG_ERROR("test_umq_rearm_interrupt failed\n");
+        return TEST_FAILED;
+    }
+    test_data_args_fill(data_args);
+    ret = test_umq_post_tx_buf(data_args->umqh_ops, data_args->data, data_args->data_size);
+    if (ret != TEST_SUCCESS) {
+        TEST_LOG_ERROR("ctx->umqh_ops[%u] test_post_tx_data failed\n", data_args->umqh_ops->idx);
+        CHECK_FREE(data_args->data);
+        return TEST_FAILED;
+    }
+    CHECK_FREE(data_args->data);
+    if (g_test_log_dir.async_ops.flag == ASYNC_FLAG_ENABLE) {
+        nevents = test_umq_get_cq_event(data_args->umqh_ops, UMQ_IO_TX);
+        if (nevents < 1) {
+            TEST_LOG_ERROR("test_umq_get_cq_event failed\n");
+            return TEST_FAILED;
+        }
+    } else {
+        nevents = test_umq_wait_interrupt(data_args->umqh_ops, UMQ_IO_TX);
+        if (nevents < 1) {
+            TEST_LOG_ERROR("test_umq_wait_interrupt failed\n");
+            return TEST_FAILED;
+        }
+    }
+    ret = test_umq_poll_tx_buf(data_args->umqh_ops);
+    if (ret != TEST_SUCCESS) {
+        TEST_LOG_ERROR("ctx->umqh[%u] test_umq_poll_tx_buf failed\n", data_args->umqh_ops-idx);
+        return TEST_FAILED;
+    }
+    test_umq_ack_interrupt(data_args->umqh_ops, UMQ_IO_TX, nevents);
+    return TEST_SUCCESS;
+}
+
+int test_umq_pro_func_rsp(test_data_args_t *data_args)
+{
+    int ret, nevents;
+    if (g_test_umq_ctx.cfg.headroom_size == 0) {
+        TEST_LOG_ERROR("umq_init_headroom_size is 0");
+        return TEST_FAILED;
+    }
+    if (test_umq_rearm_interrupt(data_args->umqh_ops, UMQ_IO_RX)) {
+        TEST_LOG_ERROR("test_umq_rearm_interrupt failed");
+        return TEST_FAILED;
+    }
+    if (g_test_umq_ctx.async_ops.flag == ASYNC_FLAG_ENABLE) {
+        nevents = test_umq_get_cq_next(data_args->umqh_ops, UMQ_IO_RX, 30 * 1000);
+        if (nevents < 1) {
+            TEST_LOG_ERROR("test_umq_get_cq_next failed\n");
+            return TEST_FAILED;
+        }
+    } else {
+        nevents = test_umq_wait_interrupt(data_args->umqh_ops, UMQ_IO_RX, 30 * 1000);
+        if (nevents < 1) {
+            TEST_LOG_ERROR("test_umq_wait_interrupt failed\n");
+            return TEST_FAILED;
+        }
+    }
+    ret = test_umq_poll_rx_buf(data_args->umqh_ops, data_args->data, data_args->data_size, DEQUEUE_TIMEOUT_MS);
+    if (ret != TEST_SUCCESS) {
+        TEST_LOG_ERROR("ctx->umqh_ops[%u] test_umq_poll_rx_buf failed\n", data_args->umqh_ops->idx);
+        CHECK_FREE(data_args->data);
+        return TEST_FAILED;
+    }
+    CHECK_FREE(data_args->data);
+    return TEST_FAILED;
+    test_umq_ack_interrupt(data_args->umqh_ops, UMQ_IO_RX, nevents);
+    return TEST_SUCCESS;
+}
