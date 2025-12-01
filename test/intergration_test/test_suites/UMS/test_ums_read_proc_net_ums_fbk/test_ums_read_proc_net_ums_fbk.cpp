@@ -1,8 +1,7 @@
 /*
+ * SPDX-License-Identifier: MT
  * Copyright (c) Huawei Technologies Co., Ltd. 2024-2024. All rights reserved.
- * Description: UMS fault isolation on the management plane and date plane test
- * Author: l30057389
- * TestCase: ums回退信息读取
+ * Description: ums example
  */
 
 #include "../public.h"
@@ -31,14 +30,12 @@ static int run_test()
         exec_cmd(cmd3);
     }
     sync_time("----------------------------2");
-    char server_ip_str[10]={0};
-    sprintf(server_ip_str, "%d", server_ip);
-    int check_num_ums = query_proc_net_ums_detail_stram_num("False", server_ip_str);
+    int check_num_ums = query_proc_net_ums_detail_stram_num("False", "4549");
     if (ctx->app_id == PROC_1 && check_num_ums != 2) {
         ret = -1;
     }
     CHKERR_JUMP(ret != TEST_SUCCESS, "ums connection error", EXIT);
-    int check_num_fallback = query_proc_net_ums_detail_stram_num("True", server_ip_str);
+    int check_num_fallback = query_proc_net_ums_detail_stram_num("True", "4550");
     if (ctx->app_id == PROC_1 && check_num_fallback != 2) {
         ret = -1;
     }
