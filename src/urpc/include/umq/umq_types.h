@@ -252,8 +252,7 @@ struct umq_buf {
 
     uint64_t status : 32;                 // umq_buf_status_t
     uint64_t io_direction : 2;            // 0: no direction; 1: tx qbuf; 2: rx qbuf
-    uint64_t need_import : 1;
-    uint64_t rsvd3 : 29;
+    uint64_t rsvd3 : 30;
 
     uint64_t rsvd4;
 
@@ -271,6 +270,18 @@ typedef struct umq_alloc_option {
     uint32_t flag;                          // indicates which below property takes effect
     uint16_t headroom_size;
 } umq_alloc_option_t;
+
+typedef struct umq_flowcontrol_stats {
+    uint64_t local_rx_posted;
+    uint64_t remote_rx_window;
+    uint64_t total_local_rx_posted;
+    uint64_t total_local_rx_notified;
+    uint64_t total_local_rx_posted_error;
+    uint64_t total_remote_rx_received;
+    uint64_t total_remote_rx_consumed;
+    uint64_t total_remote_rx_received_error;
+    uint64_t total_flow_controlled_wr;
+} umq_flowcontrol_stats_t;
 
 typedef enum umq_dfx_module_id {
     UMQ_DFX_MODULE_PERF,
@@ -489,6 +500,24 @@ typedef struct umq_route_list {
     uint32_t len;
     umq_route_t buf[UMQ_MAX_ROUTES];
 } umq_route_list_t;
+
+typedef enum umq_user_ctl_opcode {
+    UMQ_OPCODE_FLOW_CONTROL_STATS_QUERY = 0,
+
+    UMQ_OPCODE_MAX,
+} umq_user_ctl_opcode_t;
+
+typedef struct umq_user_ctl_in {
+    uint64_t addr;                  // the address of the input parameter buffer
+    uint32_t len;                   // the length of the input parameter buffer
+    uint32_t opcode;                // opcode for user ctl
+} umq_user_ctl_in_t;
+
+typedef struct umq_user_ctl_out {
+    uint64_t addr;                  // the address of the output parameter buffer
+    uint32_t len;                   // the length of the output parameter buffer
+    uint32_t reserved;
+} umq_user_ctl_out_t;
 
 #ifdef __cplusplus
 }
