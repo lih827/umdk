@@ -71,6 +71,7 @@
   cd ./umdk/test/intergration_test
   find ./ -name test.py | xargs -i pytest {}
 ```
+**注意事项：** 请在host1上来执行用例
 
 #### 四、许可
 
