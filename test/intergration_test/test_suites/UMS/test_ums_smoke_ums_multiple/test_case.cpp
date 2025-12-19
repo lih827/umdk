@@ -37,7 +37,7 @@ static int run_test(test_ums_ctx_t *ctx)
     CHKERR_JUMP(ret != TEST_SUCCESS, "ums multiple connect failed", EXIT);
 
     exec_cmd(close_qperf, MAX_EXEC_CMD_RET_LEN, "pkill -9 qperf");
-    rc = UMS_SUCCESS;
+    rc = TEST_SUCCESS;
 EXIT:
     sync_time("----------------------------3");
     return rc;
@@ -47,5 +47,6 @@ int main(int argc, char *argv[]) {
     int ret;
     test_ums_ctx_t *ctx = test_ums_ctx_init(argc, argv, 1);
     ret = run_test(ctx);
+    destroy_test_ctx(ctx);
     return ret;
 }
