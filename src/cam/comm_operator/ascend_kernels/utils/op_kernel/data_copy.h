@@ -9,14 +9,13 @@
 
 #ifndef CAM_DATACOPY_GM2GM_H
 #define CAM_DATACOPY_GM2GM_H
-#include <type_traits>
 #include "comm_args.h"
+#include <type_traits>
 
 using namespace AscendC;
 using namespace Moe;
 
-template <typename T>
-FORCE_INLINE_AICORE void SetAtomicOpType(int op)
+template <typename T> FORCE_INLINE_AICORE void SetAtomicOpType(int op)
 {
     switch (op) {
         case ADD:
@@ -36,8 +35,7 @@ FORCE_INLINE_AICORE void SetAtomicOpType(int op)
     }
 }
 
-template <typename T>
-FORCE_INLINE_AICORE void CpUB2GM(__gm__ T *gmAddr, __ubuf__ T *ubAddr, uint32_t size)
+template <typename T> FORCE_INLINE_AICORE void CpUB2GM(__gm__ T *gmAddr, __ubuf__ T *ubAddr, uint32_t size)
 {
     LocalTensor<uint8_t> ubTensor;
     GlobalTensor<uint8_t> gmTensor;
@@ -48,8 +46,7 @@ FORCE_INLINE_AICORE void CpUB2GM(__gm__ T *gmAddr, __ubuf__ T *ubAddr, uint32_t 
     DataCopyPad(gmTensor, ubTensor, dataCopyParams);
 }
 
-template <typename T>
-FORCE_INLINE_AICORE void CpGM2UB(__ubuf__ T *ubAddr, __gm__ T *gmAddr, uint32_t size)
+template <typename T> FORCE_INLINE_AICORE void CpGM2UB(__ubuf__ T *ubAddr, __gm__ T *gmAddr, uint32_t size)
 {
     LocalTensor<uint8_t> ubTensor;
     GlobalTensor<uint8_t> gmTensor;
@@ -61,8 +58,7 @@ FORCE_INLINE_AICORE void CpGM2UB(__ubuf__ T *ubAddr, __gm__ T *gmAddr, uint32_t 
     DataCopyPad(ubTensor, gmTensor, dataCopyParams, padParams);
 }
 
-template<typename T>
-FORCE_INLINE_AICORE void CopyUB2UB(__ubuf__ T *dst, __ubuf__ T *src, const uint32_t calCount)
+template <typename T> FORCE_INLINE_AICORE void CopyUB2UB(__ubuf__ T *dst, __ubuf__ T *src, const uint32_t calCount)
 {
     LocalTensor<T> srcTensor;
     LocalTensor<T> dstTensor;
