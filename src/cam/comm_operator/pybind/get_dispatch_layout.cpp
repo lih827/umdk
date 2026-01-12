@@ -7,15 +7,14 @@
  * History: 2026-01-06 create get_dispatch_layout pybind extention file
  */
 
-#include <unistd.h>
-#include <hccl/hccl.h>
-#include <torch/extension.h>
-#include <torch/csrc/autograd/custom_function.h>
-#include "torch_npu/csrc/core/npu/NPUStream.h"
 #include "pytorch_npu_helper.hpp"
+#include "torch_npu/csrc/core/npu/NPUStream.h"
 #include "utils.h"
 #include <hccl/hccl.h>
 #include <iostream>
+#include <torch/csrc/autograd/custom_function.h>
+#include <torch/extension.h>
+#include <unistd.h>
 
 using torch::autograd::AutogradContext;
 using torch::autograd::Function;
@@ -23,84 +22,75 @@ using TensorVector = std::vector<at::Tensor>;
 using namespace at;
 using namespace std;
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor> GetDispatchLayoutImplNpu(
-    const at::Tensor& topkIdx,
-    int64_t numExperts,
-    int64_t numRanks)
+const int LOCAL_RANK_SIZE = 8;
+const int MAX_BATCH_SIZE = 4096;
+const int EXPERT_DATA_SIZE = 1 + MAX_BATCH_SIZE; // 4097
+
+std::tuple<at::Tensor, at::Tensor> GetDispatchLayoutImplNpu(const at::Tensor &topkIdx, int64_t numExperts,
+                                                            int64_t numRanks)
 {
-    TORCH_BIND_ASSERT(topkIdx.dim() == 2);
-    TORCH_BIND_ASSERT(topkIdx.is_contiguous());
+    // Convert topk_idx to int64 if necessary
+    at::Tensor topk_idx_int64 = topkIdx.scalar_type() == at::kLong ? topkIdx : topkIdx.to(at::kLong);
+
+    TORCH_BIND_ASSERT(topk_idx_int64.dim() == 2);
+    TORCH_BIND_ASSERT(topk_idx_int64.is_contiguous());
     TORCH_BIND_ASSERT(numExperts > 0);
 
-    const int numTokens = topkIdx.size(0);
-    const int numTopk = topkIdx.size(1);
+    const int num_tokens = topk_idx_int64.size(0);
+    const int num_topk = topk_idx_int64.size(1);
+    const int local_ranksize = LOCAL_RANK_SIZE;
+    auto server_num = numRanks / local_ranksize;
 
-    auto device = topkIdx.device();
-    auto numTokensPerExpert = at::zeros({numExperts}, at::dtype(at::kInt).device(device));
-    auto numTokensPerRank = at::zeros({numRanks}, at::dtype(at::kInt).device(device));
-    auto isTokenInRank = at::zeros({numTokens, numRanks}, at::dtype(at::kInt).device(device));
+    auto device = topk_idx_int64.device();
+    auto num_tokens_per_expert = at::zeros({numExperts}, at::dtype(at::kInt).device(device));
+    auto num_tokens_per_rank = at::zeros({numRanks}, at::dtype(at::kInt).device(device));
+    auto is_token_in_rank = at::zeros({num_tokens, numRanks}, at::dtype(at::kInt).device(device));
+    const int notify_send_data_size =
+        numExperts * EXPERT_DATA_SIZE + server_num + MAX_BATCH_SIZE * (1 + 2 * server_num + numExperts);
+    auto send_token_idx_small = at::zeros({num_tokens, num_topk}, at::dtype(at::kInt).device(device));
+    auto notify_send_data = at::zeros({notify_send_data_size}, at::dtype(at::kInt).device(device));
+    EXEC_NPU_CMD(aclnnDispatchLayout, topk_idx_int64, num_tokens, numRanks, numExperts, num_topk, local_ranksize,
+                 num_tokens_per_rank, num_tokens_per_expert, is_token_in_rank, notify_send_data, send_token_idx_small);
 
-    EXEC_NPU_CMD(aclnnDispatchLayout,
-        topkIdx,
-        numTokens,
-        numRanks,
-        numExperts,
-        numTopk,
-        numTokensPerRank,
-        numTokensPerExpert,
-        isTokenInRank);
-
-    auto isTokenInRank_bool = isTokenInRank.to(at::kBool);
-
-    return std::make_tuple(numTokensPerRank, numTokensPerExpert, isTokenInRank_bool);
+    return std::make_tuple(num_tokens_per_expert, send_token_idx_small);
 }
 
 TensorVector GetDispatchLayoutBackwardImplNpu(const at::Tensor &self)
 {
     at::Tensor result = at::Tensor(self); // 创建输出内存
-    return {result, result, result};
+    return {result, result};
 }
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor> GetDispatchLayoutImpl(
-    const at::Tensor& topkIdx,
-    int64_t numExperts,
-    int64_t numRanks)
+std::tuple<at::Tensor, at::Tensor> GetDispatchLayoutImpl(const at::Tensor &topkIdx, int64_t numExperts,
+                                                         int64_t numRanks)
 {
     static auto op = torch::Dispatcher::singleton()
-                        .findSchemaOrThrow("umdk_cam_op_lib::get_dispatch_layout", "")
-                        .typed<decltype(GetDispatchLayoutImpl)>();
+                         .findSchemaOrThrow("umdk_cam_op_lib::get_dispatch_layout", "")
+                         .typed<decltype(GetDispatchLayoutImpl)>();
     return op.call(topkIdx, numExperts, numRanks);
 }
 
 // 通过继承torch::autograd::Function类实现前反向绑定
 class ExtGetDispatchLayout : public torch::autograd::Function<ExtGetDispatchLayout> {
-public:
-    static TensorVector forward(
-        AutogradContext *ctx, \
-        const at::Tensor& topkIdx,
-        int64_t numExperts,
-        int64_t numRanks)
+  public:
+    static TensorVector forward(AutogradContext *ctx, const at::Tensor &topkIdx, int64_t numExperts, int64_t numRanks)
     {
         auto result = GetDispatchLayoutImpl(topkIdx, numExperts, numRanks);
 
-        return {std::get<0>(result), std::get<1>(result), std::get<2>(result)};
+        return {std::get<0>(result), std::get<1>(result)};
     }
 
-    static TensorVector backward(
-        AutogradContext *ctx, \
-        TensorVector grad_outputs)
+    static TensorVector backward(AutogradContext *ctx, TensorVector grad_outputs)
     {
-        return {at::Tensor(), at::Tensor(), at::Tensor()};
+        return {at::Tensor(), at::Tensor()};
     }
 };
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor> GetDispatchLayoutImplAutograd(
-    const at::Tensor& topkIdx,
-    int64_t numExperts,
-    int64_t numRanks)
+std::tuple<at::Tensor, at::Tensor> GetDispatchLayoutImplAutograd(const at::Tensor &topkIdx, int64_t numExperts,
+                                                                 int64_t numRanks)
 {
     auto result = ExtGetDispatchLayout::apply(topkIdx, numExperts, numRanks);
-    return std::make_tuple(result[0], result[1], result[2]);
+    return std::make_tuple(result[0], result[1]);
 }
 
 // get_dispatch_layout
