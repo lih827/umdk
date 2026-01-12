@@ -10,21 +10,22 @@
 #ifndef COMMON_OPS_CSRC_FUNCTIONS_H_
 #define COMMON_OPS_CSRC_FUNCTIONS_H_
 
-#include <ATen/ATen.h>
-#include <torch/script.h>
-#include <torch/extension.h>
-#include <torch/csrc/autograd/custom_function.h>
 #include "torch_npu/csrc/core/npu/NPUStream.h"
+#include <ATen/ATen.h>
+#include <torch/csrc/autograd/custom_function.h>
+#include <torch/extension.h>
+#include <torch/script.h>
 
-std::vector<at::Tensor> fused_deep_moe_impl_autograd(
+std::vector<at::Tensor> FusedDeepMoeImplAutograd(
     const at::Tensor &x, \
     const at::Tensor &expertIds, \
     const at::TensorList &gmm1PermutedWeight, \
     const at::TensorList &gmm1PermutedWeightScale, \
     const at::TensorList &gmm2Weight, \
     const at::TensorList &gmm2WeightScale, \
-    const c10::optional<at::Tensor> &expertSmoothScalesOptional, \
-    const c10::optional<at::Tensor> &expertScalesOptional, \
+    const at::Tensor &expertScales, \
+    const c10::optional<at::Tensor> &expertSmoothScales, \
+    const c10::optional<at::Tensor> &xActiveMask, \
     c10::string_view groupEp, \
     int64_t epRankSize, \
     int64_t epRankId, \
@@ -34,36 +35,19 @@ std::vector<at::Tensor> fused_deep_moe_impl_autograd(
     int64_t quantMode, \
     int64_t globalBs);
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor>
-GetDispatchLayoutImplAutograd(
-    const at::Tensor& topIdx,
-    int64_t numExperts,
-    int64_t numRanks);
+std::tuple<at::Tensor, at::Tensor> GetDispatchLayoutImplAutograd(const at::Tensor &topIdx, int64_t numExperts,
+                                                                 int64_t numRanks);
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-MoeDispatchPrefillImplAutograd(
-    const at::Tensor& x,
-    const at::Tensor& topkIdx,
-    const at::Tensor& topkWeights,
-    const at::Tensor& numTokensPerRank,
-    const at::Tensor& isTokenInRank,
-    at::Tensor& numTokensPerExpert,
-    int64_t numWorstTokens,
-    c10::string_view groupEp,
-    int64_t rank,
-    int64_t numRanks);
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+MoeDispatchPrefillImplAutograd(const at::Tensor &x, const at::Tensor &topkIdx, const at::Tensor &topkWeights,
+                               const at::Tensor &numTokensPerExpert, const at::Tensor &sendTokenIdxSmall,
+                               c10::string_view groupEp, int64_t rank, int64_t numRanks, bool useQuant);
 
-at::Tensor MoeCombinePrefillImplAutograd(
-    const at::Tensor& x,
-    const at::Tensor& topkIdx,
-    const at::Tensor& topkWeights,
-    const at::Tensor& srcIdx,
-    const at::Tensor& sendHead,
-    c10::string_view groupEp,
-    int64_t rank,
-    int64_t numRanks);
+at::Tensor MoeCombinePrefillImplAutograd(const at::Tensor &x, const at::Tensor &topkIdx, const at::Tensor &topkWeights,
+                                         const at::Tensor &srcIdx, const at::Tensor &sendHead, c10::string_view groupEp,
+                                         int64_t rank, int64_t numRanks);
 
-std::vector<at::Tensor> moe_dispatch_shmem_impl_autograd( \
+std::vector<at::Tensor> MoeDispatchShmemImplAutograd( \
     const at::Tensor &x, \
     const at::Tensor &expertIds, \
     const c10::optional<at::Tensor> &scales, \
@@ -81,7 +65,7 @@ std::vector<at::Tensor> moe_dispatch_shmem_impl_autograd( \
     int64_t expertTokenNumsType, \
     int64_t extInfo);
 
-at::Tensor moe_combine_shmem_impl_autograd( \
+at::Tensor MoeCombineShmemImplAutograd( \
     const at::Tensor &expandX, \
     const at::Tensor &expertIds, \
     const at::Tensor &expandIdx, \

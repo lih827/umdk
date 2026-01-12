@@ -18,21 +18,21 @@
 
 using torch::autograd::AutogradContext;
 using torch::autograd::Function;
-using tensor_list = std::vector<at::Tensor>;
+using TensorVector = std::vector<at::Tensor>;
 using namespace at;
 using namespace std;
 
-constexpr int KERNEL_PARAM_CNT = 3;
 
-std::vector<at::Tensor> fused_deep_moe_impl_npu(
+std::vector<at::Tensor> FusedDeepMoeImplNpu(
     const at::Tensor &x, \
     const at::Tensor &expertIds, \
     const at::TensorList &gmm1PermutedWeight, \
     const at::TensorList &gmm1PermutedWeightScale, \
     const at::TensorList &gmm2Weight, \
     const at::TensorList &gmm2WeightScale, \
-    const c10::optional<at::Tensor> &expertSmoothScalesOptional, \
-    const c10::optional<at::Tensor> &expertScalesOptional, \
+    const at::Tensor &expertScales, \
+    const c10::optional<at::Tensor> &expertSmoothScales, \
+    const c10::optional<at::Tensor> &xActiveMask, \
     c10::string_view groupEp, \
     int64_t epRankSize, \
     int64_t epRankId, \
@@ -46,7 +46,7 @@ std::vector<at::Tensor> fused_deep_moe_impl_npu(
     auto xShape = x.sizes();
     auto expertIdsShape = expertIds.sizes();
     int h = xShape[1];
-    int bs = expertIdsShape[0];
+    int bs = xShape[0];
     int topk = expertIdsShape[1];
     
     at::Tensor output = at::empty({bs, h}, x.options());
@@ -59,40 +59,41 @@ std::vector<at::Tensor> fused_deep_moe_impl_npu(
         localExpertNum = moeExpertNum / (epRankSize - sharedExpertRankNum);
     }
     auto opts = expertIds.options().dtype(at::kLong);
-    at::Tensor expert_token_nums = at::empty({localExpertNum}, opts);
+    at::Tensor expertTokenNums = at::empty({localExpertNum}, opts);
     
     // 必须要求对齐fused_deep_moe.cpp 先input 跟着 attr， 然后output
-    vector<char> group_ep_chrs(groupEp.begin(), groupEp.end());
-    group_ep_chrs.push_back('\0');
-    char *group_ep_ptr = &group_ep_chrs[0];
-    
+    vector<char> groupEpChrs(groupEp.begin(), groupEp.end());
+    groupEpChrs.push_back('\0');
+    char *groupEpPtr = &groupEpChrs[0];
+
     // 必须要求对齐fused_deep_moe.cpp 先input 跟着 attr, 然后output
     EXEC_NPU_CMD(aclnnFusedDeepMoe,
         // input
         x, expertIds, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, gmm2WeightScale, \
-        expertSmoothScalesOptional, expertScalesOptional, \
+        expertScales, expertSmoothScales, xActiveMask, \
         // attr
-        group_ep_ptr, epRankSize, epRankId, moeExpertNum, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs, \
+        groupEpPtr, epRankSize, epRankId, moeExpertNum, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs, \
         // output
-        output, expert_token_nums);
-    return {output, expert_token_nums};
+        output, expertTokenNums);
+    return {output, expertTokenNums};
 }
 
-std::vector<at::Tensor> fused_deep_moe_backward_impl_npu(const at::Tensor &self)
+TensorVector FusedDeepMoeBackwardImplNpu(const at::Tensor &self)
 {
     at::Tensor result = at::Tensor(self); // 创建输出内存
     return {result, result};
 }
 
-std::vector<at::Tensor> fused_deep_moe_impl_meta(
+TensorVector FusedDeepMoeImplMeta(
     const at::Tensor &x, \
     const at::Tensor &expertIds, \
     const at::TensorList &gmm1PermutedWeight, \
     const at::TensorList &gmm1PermutedWeightScale, \
     const at::TensorList &gmm2Weight, \
     const at::TensorList &gmm2WeightScale, \
-    const c10::optional<at::Tensor> &expertSmoothScalesOptional, \
-    const c10::optional<at::Tensor> &expertScalesOptional, \
+    const at::Tensor &expertScales, \
+    const c10::optional<at::Tensor> &expertSmoothScales, \
+    const c10::optional<at::Tensor> &xActiveMask, \
     c10::string_view groupEp, \
     int64_t epRankSize, \
     int64_t epRankId, \
@@ -103,9 +104,8 @@ std::vector<at::Tensor> fused_deep_moe_impl_meta(
     int64_t globalBs)
 {
     auto xShape = x.sizes();
-    auto expertIdsShape = expertIds.sizes();
     int h = xShape[1];
-    int bs = expertIdsShape[0];
+    int bs = xShape[0];
     at::Tensor output = at::empty({bs, h}, x.options().device(at::kMeta));
 
     bool isShareExpert = (epRankId < sharedExpertRankNum);
@@ -116,20 +116,21 @@ std::vector<at::Tensor> fused_deep_moe_impl_meta(
         localExpertNum = moeExpertNum / (epRankSize - sharedExpertRankNum);
     }
     auto opts = expertIds.options().dtype(at::kLong); 
-    at::Tensor expert_token_nums = at::empty({localExpertNum}, opts.device(at::kMeta)); 
+    at::Tensor expertTokenNums = at::empty({localExpertNum}, opts.device(at::kMeta)); 
     
-    return {output, expert_token_nums};
+    return {output, expertTokenNums};
 }
 
-std::vector<at::Tensor> fused_deep_moe_impl(
+TensorVector FusedDeepMoeImpl(
     const at::Tensor &x, \
     const at::Tensor &expertIds, \
     const at::TensorList &gmm1PermutedWeight, \
     const at::TensorList &gmm1PermutedWeightScale, \
     const at::TensorList &gmm2Weight, \
     const at::TensorList &gmm2WeightScale, \
-    const c10::optional<at::Tensor> &expertSmoothScalesOptional, \
-    const c10::optional<at::Tensor> &expertScalesOptional, \
+    const at::Tensor &expertScales, \
+    const c10::optional<at::Tensor> &expertSmoothScales, \
+    const c10::optional<at::Tensor> &xActiveMask, \
     c10::string_view groupEp, \
     int64_t epRankSize, \
     int64_t epRankId, \
@@ -141,24 +142,25 @@ std::vector<at::Tensor> fused_deep_moe_impl(
 {
     static auto op = torch::Dispatcher::singleton()
                         .findSchemaOrThrow("umdk_cam_op_lib::fused_deep_moe", "")
-                        .typed<decltype(fused_deep_moe_impl)>();
+                        .typed<decltype(FusedDeepMoeImpl)>();
     return op.call(x, expertIds, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, gmm2WeightScale, \
-        expertSmoothScalesOptional, expertScalesOptional, \
+        expertScales, expertSmoothScales, xActiveMask, \
         groupEp, epRankSize, epRankId, moeExpertNum, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs);
 }
 
 // 通过继承torch::autograd::Function类实现前反向绑定
 class ExtFusedDeepMoe : public torch::autograd::Function<ExtFusedDeepMoe> {
 public:
-    static std::vector<at::Tensor> forward(AutogradContext *ctx, \
+    static TensorVector forward(AutogradContext *ctx, \
                             const at::Tensor &x, \
                             const at::Tensor &expertIds, \
                             const at::TensorList &gmm1PermutedWeight, \
                             const at::TensorList &gmm1PermutedWeightScale, \
                             const at::TensorList &gmm2Weight, \
                             const at::TensorList &gmm2WeightScale, \
-                            const c10::optional<at::Tensor> &expertSmoothScalesOptional, \
-                            const c10::optional<at::Tensor> &expertScalesOptional, \
+                            const at::Tensor &expertScales, \
+                            const c10::optional<at::Tensor> &expertSmoothScales, \
+                            const c10::optional<at::Tensor> &xActiveMask, \
                             c10::string_view groupEp, \
                             int64_t epRankSize, \
                             int64_t epRankId, \
@@ -168,14 +170,13 @@ public:
                             int64_t quantMode, \
                             int64_t globalBs)
     {
-        at::AutoDispatchBelowADInplaceOrView guard;
-        auto result = fused_deep_moe_impl(x, expertIds, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, \
-            gmm2WeightScale, expertSmoothScalesOptional, expertScalesOptional, \
+        auto result = FusedDeepMoeImpl(x, expertIds, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, \
+            gmm2WeightScale, expertScales, expertSmoothScales, xActiveMask, \
             groupEp, epRankSize, epRankId, moeExpertNum, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs);
         return result;
     }
 
-    static std::vector<at::Tensor> backward(AutogradContext *ctx, std::vector<at::Tensor> grad_outputs)
+    static TensorVector backward(AutogradContext *ctx, TensorVector grad_outputs)
     {
         return {at::Tensor(),
                 at::Tensor(),
@@ -190,15 +191,16 @@ public:
     }
 };
 
-std::vector<at::Tensor> fused_deep_moe_impl_autograd(
+TensorVector FusedDeepMoeImplAutograd(
     const at::Tensor &x, \
     const at::Tensor &expertIds, \
     const at::TensorList &gmm1PermutedWeight, \
     const at::TensorList &gmm1PermutedWeightScale, \
     const at::TensorList &gmm2Weight, \
     const at::TensorList &gmm2WeightScale, \
-    const c10::optional<at::Tensor> &expertSmoothScalesOptional, \
-    const c10::optional<at::Tensor> &expertScalesOptional, \
+    const at::Tensor &expertScales, \
+    const c10::optional<at::Tensor> &expertSmoothScales, \
+    const c10::optional<at::Tensor> &xActiveMask, \
     c10::string_view groupEp, \
     int64_t epRankSize, \
     int64_t epRankId, \
@@ -209,7 +211,7 @@ std::vector<at::Tensor> fused_deep_moe_impl_autograd(
     int64_t globalBs)
 {
     auto result = ExtFusedDeepMoe::apply(x, expertIds, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, \
-            gmm2WeightScale, expertSmoothScalesOptional, expertScalesOptional, \
+            gmm2WeightScale, expertScales, expertSmoothScales, xActiveMask, \
             groupEp, epRankSize, epRankId, moeExpertNum, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs);
         return result;
 }
@@ -217,17 +219,17 @@ std::vector<at::Tensor> fused_deep_moe_impl_autograd(
 // fused_deep_moe
 TORCH_LIBRARY_IMPL(umdk_cam_op_lib, PrivateUse1, m)
 {
-    m.impl("fused_deep_moe", &fused_deep_moe_impl_npu);
-    m.impl("fused_deep_moe_backward", &fused_deep_moe_backward_impl_npu);
+    m.impl("fused_deep_moe", &FusedDeepMoeImplNpu);
+    m.impl("fused_deep_moe_backward", &FusedDeepMoeBackwardImplNpu);
 }
 
 TORCH_LIBRARY_IMPL(umdk_cam_op_lib, AutogradPrivateUse1, m)
 {
-    m.impl("fused_deep_moe", &fused_deep_moe_impl_autograd);
+    m.impl("fused_deep_moe", &FusedDeepMoeImplAutograd);
 }
 
 // 为Meta设备注册前反向实现
 TORCH_LIBRARY_IMPL(umdk_cam_op_lib, Meta, m)
 {
-    m.impl("fused_deep_moe", &fused_deep_moe_impl_meta);
+    m.impl("fused_deep_moe", &FusedDeepMoeImplMeta);
 }
