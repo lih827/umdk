@@ -60,12 +60,12 @@ constexpr uint32_t K_MAX = 16;
 namespace optiling {
 static void PrintTilingDataInfo(const char *nodeName, DispatchLayoutTilingData &tilingData)
 {
-    OPS_LOG_D(nodeName, "numToken is %u.", tilingData.dispatchLayoutInfo.numTokens);
-    OPS_LOG_D(nodeName, "numRanks is %u.", tilingData.dispatchLayoutInfo.numRanks);
-    OPS_LOG_D(nodeName, "numExperts is %u.", tilingData.dispatchLayoutInfo.numExperts);
-    OPS_LOG_D(nodeName, "numTopk is %u.", tilingData.dispatchLayoutInfo.numTopk);
-    OPS_LOG_D(nodeName, "localRankSize is %u.", tilingData.dispatchLayoutInfo.localRankSize);
-    OPS_LOG_D(nodeName, "totalUbSize is %lu.", tilingData.dispatchLayoutInfo.totalUbSize);
+    OP_LOGD(nodeName, "numToken is %u.", tilingData.dispatchLayoutInfo.numTokens);
+    OP_LOGD(nodeName, "numRanks is %u.", tilingData.dispatchLayoutInfo.numRanks);
+    OP_LOGD(nodeName, "numExperts is %u.", tilingData.dispatchLayoutInfo.numExperts);
+    OP_LOGD(nodeName, "numTopk is %u.", tilingData.dispatchLayoutInfo.numTopk);
+    OP_LOGD(nodeName, "localRankSize is %u.", tilingData.dispatchLayoutInfo.localRankSize);
+    OP_LOGD(nodeName, "totalUbSize is %lu.", tilingData.dispatchLayoutInfo.totalUbSize);
 }
 
 static bool CheckIfA2Machine(gert::TilingContext *context)
@@ -235,7 +235,7 @@ static ge::graphStatus DispatchLayoutTilingFuncImpl(gert::TilingContext *context
     blockDim = aivNum;
     context->SetBlockDim(blockDim);
     tilingData->dispatchLayoutInfo.totalUbSize = ubSize;
-    OPS_LOG_D(nodeName, "blockDim=%u, aivNum=%u, ubSize=%lu", blockDim, aivNum, ubSize);
+    OP_LOGD(nodeName, "blockDim=%u, aivNum=%u, ubSize=%lu", blockDim, aivNum, ubSize);
     PrintTilingDataInfo(nodeName, *tilingData);
     return ge::GRAPH_SUCCESS;
 }

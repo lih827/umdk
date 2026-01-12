@@ -28,7 +28,7 @@
 #include "register/op_def_registry.h"
 #include "register/tilingdata_base.h"
 #include "tiling/tiling_api.h"
-#include "tiling/tiling_args.h"
+#include "tiling_args.h"
 
 using namespace AscendC;
 using namespace ge;
